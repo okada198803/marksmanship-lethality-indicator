@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tactical Trainer v23</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        :root { --primary: #007aff; --bg: #000; --panel: #1c1c1e; --accent: #ffcc00; --danger: #ff3b30; --success: #4cd964; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); color: white; margin: 0; padding: 10px; }
+        .card { background: var(--panel); border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid #333; }
+        h2 { font-size: 0.9rem; margin: 0 0 12px 0; color: var(--accent); border-bottom: 1px solid #444; padding-bottom: 5px; text-transform: uppercase; }
+        #timer-val { font-size: 5rem; font-weight: bold; text-align: center; color: var(--success); font-family: monospace; margin: 10px 0; }
+        .btn-main { background: var(--success); color: white; width: 100%; padding: 25px; border-radius: 15px; border: none; font-weight: bold; font-size: 1.5rem; cursor: pointer; }
+        .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        input { width: 92%; background: #2c2c2e; border: 1px solid #444; color: white; padding: 8px; border-radius: 6px; }
+        canvas#mainCanvas { width: 100%; border-radius: 8px; margin-top: 10px; border: 1px solid #444; display: none; }
+        #chart-container { display: flex; justify-content: center; margin: 10px 0; background: #111; border-radius: 15px; padding: 20px; overflow: visible; }
+        /* スコア行のデザイン調整 */
+        .score-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #222; font-size: 0.95rem; }
+        .delta.pos-good { color: var(--success); } /* 良い変化（弾着増など） */
+        .delta.pos-bad { color: var(--danger); }  /* 悪い変化（タイム遅延など） */
+        .delta.neg-good { color: var(--success); } /* 良い変化（タイム短縮など） */
+        .delta.neg-bad { color: var(--danger); }  /* 悪い変化（弾着減など） */
+        .export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn-export { padding: 18px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; color: white; }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <div class="card">
+        <h2>1. Scenario & Goals</h2>
+        <div style="margin-bottom:10px;"><input type="text" id="cfg-shooter" value="Operator-01" style="width:96%;"></div>
+        <div class="config-grid">
+            <div><label style="font-size:0.6rem;">予定発射数</label><input type="number" id="cfg-total-shots" value="5"></div>
+            <div><label style="font-size:0.6rem;">的高さ(cm)</label><input type="number" id="cfg-target-height" value="120"></div>
+            <div><label style="font-size:0.6rem;">目標散布界(cm)</label><input type="number" id="cfg-target-grouping" value="40.0"></div>
+            <div><label style="font-size:0.6rem;">目標初弾(s)</label><input type="number" id="cfg-target-first" value="2.0"></div>
+            <div><label style="font-size:0.6rem;">目標間隔(s)</label><input type="number" id="cfg-target-split" value="2.0"></div>
+            <div><label style="font-size:0.6rem;">目標リロード(s)</label><input type="number" id="cfg-target-reload" value="4.0"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>2. Shooting Timer</h2>
+        <div id="timer-val">0.00</div>
+        <button id="startBtn" class="btn-main">START DRILL</button>
+    </div>
+
+    <div id="results-area" style="display:none;">
+        <div class="card" id="analysis-step">
+            <h2>3. Target Analysis</h2>
+            <button onclick="document.getElementById('fileInput').click()" style="width:100%;padding:12px;background:var(--primary);color:white;border:none;border-radius:10px;font-weight:bold;">画像をアップロード</button>
+            <input type="file" id="fileInput" accept="image/*" style="display:none">
+            <canvas id="mainCanvas"></canvas>
+        </div>
+
+        <div class="card" id="performance-step">
+            <h2>4. Performance Analysis</h2>
+            <div id="chart-container">
+                <canvas id="radarCanvas" width="650" height="650" style="width:300px; height:300px;"></canvas>
+            </div>
+            <div id="score-deltas"></div>
+        </div>
+
+        <div class="card" id="export-step">
+            <h2>5. Export Data</h2>
+            <div class="export-grid">
+                <button onclick="exportCSV()" class="btn-export" style="background:#444;">CSV詳細分析</button>
+                <button onclick="exportPDF()" class="btn-export" style="background:var(--danger);">PDFレポート</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let audioCtx, startTime, isRunning = false, shotTimes = [];
+    let stats = { accuracy: 0, speed: 0, control: 0, exposure: 0 };
+    let lastResults = { count: 0, grouping: 0 };
+    const startBtn = document.getElementById('startBtn');
+    const timerDisplay = document.getElementById('timer-val');
+
+    startBtn.onclick = async () => {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        shotTimes = []; isRunning = false;
+        document.getElementById('results-area').style.display = 'none';
+        timerDisplay.innerText = "READY";
+        startBtn.disabled = true;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            setTimeout(() => {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'square'; osc.frequency.setValueAtTime(950, audioCtx.currentTime);
+                osc.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+                startTime = performance.now(); isRunning = true;
+                timerDisplay.innerText = "0.00";
+                startBtn.innerText = "計測中...";
+                processMic(stream);
+            }, Math.random() * 2000 + 1500);
+        } catch (e) { alert("マイクを許可してください"); startBtn.disabled = false; }
+    };
+
+    function processMic(stream) {
+        const source = audioCtx.createMediaStreamSource(stream);
+        const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+        source.connect(processor); processor.connect(audioCtx.destination);
+        processor.onaudioprocess = (e) => {
+            if (!isRunning) return;
+            const data = e.inputBuffer.getChannelData(0);
+            if (Math.max(...data) > 0.30) {
+                const now = (performance.now() - startTime) / 1000;
+                if (shotTimes.length > 0 && (now - shotTimes[shotTimes.length-1]) < 0.08) return;
+                shotTimes.push(now);
+                timerDisplay.innerText = now.toFixed(2);
+                if (shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) {
+                    isRunning = false; stream.getTracks().forEach(t => t.stop()); processor.disconnect();
+                    startBtn.disabled = false; startBtn.innerText = "START DRILL";
+                    document.getElementById('results-area').style.display = 'block';
+                    renderAnalysis({count:0, grouping:0});
+                }
+            }
+        };
+    }
+
+    document.getElementById('fileInput').onchange = (e) => {
+        const file = e.target.files[0];
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.getElementById('mainCanvas'), ctx = canvas.getContext('2d');
+            const scale = Math.min(1, 800 / img.height);
+            canvas.width = img.width * scale; canvas.height = img.height * scale;
+            canvas.style.display = "block";
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            lastResults = analyzeShots(ctx, canvas.width, canvas.height);
+            renderAnalysis(lastResults);
+        };
+        img.src = URL.createObjectURL(file);
+    };
+
+    function analyzeShots(ctx, w, h) {
+        const data = ctx.getImageData(0, 0, w, h).data;
+        let pts = [];
+        for (let i = 0; i < data.length; i += 16) {
+            if ((data[i]+data[i+1])/2 - data[i+2] > 55 && data[i]>110) {
+                const idx = i/4; pts.push({x: idx % w, y: Math.floor(idx/w)});
+            }
+        }
+        let cls = [];
+        pts.forEach(p => {
+            let found = false;
+            for (let c of cls) { if (Math.sqrt((c.x-p.x)**2 + (c.y-p.y)**2) < 20) { c.x=(c.x+p.x)/2; c.y=(c.y+p.y)/2; c.size++; found=true; break; } }
+            if(!found) cls.push({x:p.x, y:p.y, size:1});
+        });
+        cls = cls.filter(c => c.size > 8);
+        let maxD = 0;
+        for(let i=0; i<cls.length; i++) for(let j=i+1; j<cls.length; j++) maxD = Math.max(maxD, Math.sqrt((cls[i].x-cls[j].x)**2 + (cls[i].y-cls[j].y)**2));
+        ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3;
+        cls.forEach(c => { ctx.beginPath(); ctx.arc(c.x, c.y, 12, 0, Math.PI*2); ctx.stroke(); });
+        return { count: cls.length, grouping: maxD * (parseFloat(document.getElementById('cfg-target-height').value) / h) };
+    }
+
+    function renderAnalysis(acc) {
+        const g = {
+            shots: parseInt(document.getElementById('cfg-total-shots').value),
+            group: parseFloat(document.getElementById('cfg-target-grouping').value),
+            first: parseFloat(document.getElementById('cfg-target-first').value),
+            split: parseFloat(document.getElementById('cfg-target-split').value),
+            rel: parseFloat(document.getElementById('cfg-target-reload').value)
+        };
+        const act = {
+            first: shotTimes[0] || 0,
+            split: (shotTimes.length > 1) ? (shotTimes[shotTimes.length-1] - shotTimes[0]) / (shotTimes.length-1) : 0,
+            rel: (shotTimes.length > 3) ? (shotTimes[3] - shotTimes[2]) - ((shotTimes[shotTimes.length-1] - shotTimes[0]) / (shotTimes.length-1)) : 0,
+            exp: shotTimes[shotTimes.length-1] || 0
+        };
+
+        const items = [
+            { label: "精度:弾着数", val: acc.count, goal: g.shots, u: "発", type: "more_is_better" },
+            { label: "精度:散布界", val: acc.grouping, goal: g.group, u: "cm", type: "less_is_better" },
+            { label: "速度:初弾", val: act.first, goal: g.first, u: "s", type: "less_is_better" },
+            { label: "速度:間隔", val: act.split, goal: g.split, u: "s", type: "less_is_better" },
+            { label: "制御:リロード", val: act.rel, goal: g.rel, u: "s", type: "less_is_better" },
+            { label: "暴露:総時間", val: act.exp, goal: (g.first + g.split*(g.shots-1) + g.rel), u: "s", type: "less_is_better" }
+        ];
+
+        let html = "";
+        items.forEach(d => {
+            const diff = d.val - d.goal;
+            let cls = "";
+            if (d.type === "more_is_better") {
+                cls = (diff >= 0) ? "pos-good" : "neg-bad"; // 弾着数：プラスは緑、マイナスは赤
+            } else {
+                cls = (diff <= 0) ? "neg-good" : "pos-bad"; // タイム・散布界：マイナス（短縮）は緑、プラス（遅延）は赤
+            }
+            html += `<div class="score-row"><span>${d.label}</span><span>${d.val.toFixed(2)}${d.u} <span class="delta ${cls}">(${diff>=0?'+':''}${diff.toFixed(2)})</span></span></div>`;
+        });
+        document.getElementById('score-deltas').innerHTML = html;
+
+        stats.accuracy = Math.min(1, ((acc.count/g.shots) + (g.group/(acc.grouping||g.group)))/2);
+        stats.speed = Math.min(1, (g.first/act.first + g.split/act.split)/2);
+        stats.control = Math.min(1, g.rel/Math.max(0.1, act.rel));
+        stats.exposure = Math.min(1, (g.first+g.split*(g.shots-1)+g.rel)/act.exp);
+        drawChart();
+    }
+
+    function drawChart() {
+        const canvas = document.getElementById('radarCanvas'), ctx = canvas.getContext('2d');
+        const cx=325, cy=325, r=180;
+        const labels=["精度","速度","制御","暴露"], vals=[stats.accuracy, stats.speed, stats.control, stats.exposure];
+        ctx.clearRect(0,0,650,650);
+        ctx.strokeStyle="#555"; ctx.lineWidth=1;
+        for(let j=1; j<=4; j++){
+            ctx.beginPath(); for(let i=0; i<4; i++){
+                const a=(Math.PI/2)*i-Math.PI/2; ctx.lineTo(cx+(r*j/4)*Math.cos(a), cy+(r*j/4)*Math.sin(a));
+            }
+            ctx.closePath(); ctx.stroke();
+        }
+        ctx.fillStyle="#FFFFFF"; ctx.font="bold 24px sans-serif"; ctx.textAlign="center";
+        ["D","C","B","A"].forEach((rank, idx) => { ctx.fillText(rank, cx, cy - (r*(idx+1)/4) + 20); });
+        ctx.fillStyle="rgba(255,204,0,0.5)"; ctx.strokeStyle="#ffcc00"; ctx.lineWidth=6;
+        ctx.beginPath(); vals.forEach((v,i)=>{
+            const a=(Math.PI/2)*i-Math.PI/2; ctx.lineTo(cx+r*Math.max(0.1, Math.min(1,v))*Math.cos(a), cy+r*Math.max(0.1, Math.min(1,v))*Math.sin(a));
+        });
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle="#FFFFFF"; ctx.font="bold 34px sans-serif";
+        labels.forEach((l,i)=>{
+            const a=(Math.PI/2)*i-Math.PI/2;
+            const tx = cx+(r+110)*Math.cos(a);
+            const ty = cy+(r+110)*Math.sin(a)+12;
+            ctx.fillText(l, tx, ty);
+        });
+    }
+
+    function exportCSV() {
+        const shooter = document.getElementById('cfg-shooter').value;
+        const g = {
+            s: document.getElementById('cfg-total-shots').value,
+            g: document.getElementById('cfg-target-grouping').value,
+            f: document.getElementById('cfg-target-first').value,
+            sp: document.getElementById('cfg-target-split').value,
+            r: document.getElementById('cfg-target-reload').value
+        };
+        
+        // ヘッダーの拡張
+        const headers = [
+            "Timestamp", "Shooter", 
+            "Goal_Shots", "Goal_Grouping", "Goal_First", "Goal_Split", "Goal_Reload",
+            "Act_Hits", "Act_Grouping", "Act_First", "Act_TotalTime",
+            "Score_Accuracy", "Score_Speed", "Score_Control", "Score_Exposure"
+        ];
+        
+        // 詳細なショット間隔(Split)のヘッダー追加
+        shotTimes.forEach((_, i) => { if(i > 0) headers.push(`Split_${i}_to_${i+1}`); });
+        // 生タイムスタンプ
+        shotTimes.forEach((_, i) => headers.push(`RawTime_Shot_${i+1}`));
+
+        const data = [
+            new Date().toLocaleString(), shooter,
+            g.s, g.g, g.f, g.sp, g.r,
+            lastResults.count, lastResults.grouping.toFixed(2), (shotTimes[0]||0).toFixed(2), (shotTimes[shotTimes.length-1]||0).toFixed(2),
+            stats.accuracy.toFixed(3), stats.speed.toFixed(3), stats.control.toFixed(3), stats.exposure.toFixed(3)
+        ];
+
+        // 各ショット間のスプリットタイムを計算して追加
+        for(let i=1; i < shotTimes.length; i++) {
+            data.push((shotTimes[i] - shotTimes[i-1]).toFixed(3));
+        }
+        // 生のタイムスタンプを追加
+        shotTimes.forEach(t => data.push(t.toFixed(3)));
+
+        const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + data.join(",");
+        const link = document.createElement("a");
+        link.href = encodeURI(csvContent);
+        link.download = `TacticalStats_${shooter}_${Date.now()}.csv`;
+        link.click();
+    }
+
+    async function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        const shooter = document.getElementById('cfg-shooter').value;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const margin = 15;
+        const contentWidth = 180;
+
+        pdf.setFontSize(18); pdf.text("TACTICAL TRAINING REPORT - P1", margin, 20);
+        pdf.setFontSize(10); pdf.text(`Shooter: ${shooter} | ${new Date().toLocaleString()}`, margin, 28);
+        
+        const canvas3 = await html2canvas(document.getElementById('analysis-step'), { scale: 1.5 });
+        const img3 = canvas3.toDataURL('image/jpeg', 0.7);
+        pdf.addImage(img3, 'JPEG', margin, 35, contentWidth, (contentWidth * canvas3.height / canvas3.width));
+
+        pdf.addPage();
+        pdf.setFontSize(18); pdf.text("TACTICAL TRAINING REPORT - P2", margin, 20);
+        
+        const canvas4 = await html2canvas(document.getElementById('performance-step'), { scale: 1.5 });
+        const img4 = canvas4.toDataURL('image/jpeg', 0.7);
+        pdf.addImage(img4, 'JPEG', margin, 35, contentWidth, (contentWidth * canvas4.height / canvas4.width));
+
+        pdf.save(`Report_${shooter}.pdf`);
+    }
+</script>
+</body>
+</html>
