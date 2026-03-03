@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MaLI ver45 - Tactical Eval</title>
+    <title>MaLI ver46 - Tactical Analytics</title>
     <style>
         :root { 
             --primary: #ffcc00; --bg: #0a0a0a; --panel: #1a1a1a; 
@@ -25,19 +25,23 @@
         .upload-btn { background: var(--accent); color: #fff; padding: 12px; width: 100%; border: none; font-weight: bold; border-radius: 4px; margin-bottom: 8px; cursor: pointer; }
         .canvas-container { width: 100%; background: #000; margin-bottom: 10px; border: 1px solid #444; border-radius: 4px; overflow: hidden; }
         canvas.shot-canvas { width: 100%; height: auto; display: block; }
-        .score-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #2c2c2e; font-size: 0.85rem; }
-        .grade-badge { width: 24px; height: 24px; display: inline-flex; justify-content: center; align-items: center; border-radius: 50%; font-weight: 900; margin-left: 8px; font-size: 0.75rem; }
+        
+        /* 評価セクションのスタイリング */
+        .eval-group { margin-bottom: 15px; border-top: 1px solid #333; padding-top: 10px; }
+        .eval-group-title { font-size: 0.75rem; color: var(--primary); font-weight: bold; margin-bottom: 8px; display: block; }
+        .score-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 0.85rem; }
+        .grade-badge { width: 22px; height: 22px; display: inline-flex; justify-content: center; align-items: center; border-radius: 4px; font-weight: 900; margin-left: 8px; font-size: 0.7rem; }
         .grade-A { background: var(--success); color: #000; }
         .grade-B { background: var(--primary); color: #000; }
         .grade-C { background: #ff9500; color: #000; }
         .grade-D { background: var(--danger); color: #fff; }
-        .val-main { font-family: monospace; font-weight: bold; font-size: 1rem; }
+        .val-main { font-family: monospace; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver45 - Tactical Eval</h1>
+    <h1 class="app-title-main">MaLI ver46 - Tactical Analytics</h1>
 </header>
 
 <div class="card">
@@ -48,8 +52,8 @@
             <label>射距離 (m) ※複数なら / で区切る (例: 10 / 25)</label>
             <input type="text" id="cfg-range" value="10" oninput="autoConfigTargets(this.value)">
         </div>
-        <div><label>的の数</label><input type="number" id="cfg-target-count" value="1" readonly></div>
-        <div><label>予定発射数 (合計)</label><input type="number" id="cfg-total-shots" value="5"></div>
+        <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5"></div>
+        <div><label>目標命中数 (Goal Hits)</label><input type="number" id="cfg-target-hits" value="5"></div>
         <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="90"></div>
         <div><label>目標散布界 (cm)</label><input type="number" id="cfg-target-grouping" value="15.0"></div>
         <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
@@ -86,7 +90,6 @@
 
     function autoConfigTargets(val) {
         const ranges = val.split('/').map(r => r.trim()).filter(r => r !== "");
-        document.getElementById('cfg-target-count').value = ranges.length || 1;
         if (ranges.length > 0) {
             const maxRange = Math.max(...ranges.map(Number));
             document.getElementById('cfg-target-grouping').value = (maxRange * 1.2).toFixed(1);
@@ -205,7 +208,7 @@
         const ratio = actual / goal;
         if (isLowerBetter) {
             if (ratio <= 0.85) return 'A';
-            if (ratio <= 1.15) return 'B'; // 目標値付近はB
+            if (ratio <= 1.15) return 'B';
             if (ratio <= 1.40) return 'C';
             return 'D';
         } else {
@@ -221,7 +224,8 @@
         area.innerHTML = ""; area.style.display = 'block';
         
         const cfg = {
-            shots: parseInt(document.getElementById('cfg-total-shots').value),
+            totalShots: parseInt(document.getElementById('cfg-total-shots').value),
+            targetHits: parseInt(document.getElementById('cfg-target-hits').value),
             group: parseFloat(document.getElementById('cfg-target-grouping').value),
             first: parseFloat(document.getElementById('cfg-target-first').value),
             split: parseFloat(document.getElementById('cfg-target-split').value),
@@ -241,12 +245,20 @@
         const maxGrp = Math.max(...individualGroupings, 0);
 
         finalStats = {
-            hits: { val: cumulativeHits, goal: cfg.shots, grade: getGrade(cumulativeHits, cfg.shots, false) },
-            group: { val: maxGrp, goal: cfg.group, grade: getGrade(maxGrp, cfg.group, true) },
-            first: { val: firstShot, goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) },
-            split: { val: avgSplit, goal: cfg.split, grade: getGrade(avgSplit, cfg.split, true) },
-            reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' },
-            exposure: { val: totalTime, goal: (cfg.first + cfg.split*(cfg.shots-1) + (cfg.reloadAt>0?cfg.reload:0)), grade: getGrade(totalTime, (cfg.first + cfg.split*(cfg.shots-1) + (cfg.reloadAt>0?cfg.reload:0)), true) }
+            accuracy: { 
+                hits: { val: cumulativeHits, goal: cfg.targetHits, grade: getGrade(cumulativeHits, cfg.targetHits, false) },
+                group: { val: maxGrp, goal: cfg.group, grade: getGrade(maxGrp, cfg.group, true) }
+            },
+            speed: { 
+                first: { val: firstShot, goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) }
+            },
+            control: { 
+                split: { val: avgSplit, goal: cfg.split, grade: getGrade(avgSplit, cfg.split, true) },
+                reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' }
+            },
+            exposure: { 
+                total: { val: totalTime, goal: (cfg.first + cfg.split*(cfg.totalShots-1) + (cfg.reloadAt>0?cfg.reload:0)), grade: getGrade(totalTime, (cfg.first + cfg.split*(cfg.totalShots-1) + (cfg.reloadAt>0?cfg.reload:0)), true) }
+            }
         };
 
         area.innerHTML = `
@@ -255,14 +267,26 @@
                 <div style="display:flex; justify-content:center; background:#000; padding:10px; border-radius:8px;">
                     <canvas id="radarCanvas" width="400" height="400" style="width:280px; height:280px;"></canvas>
                 </div>
-                <div style="margin-top:20px;">
-                    ${createDetailRow("合計命中数", finalStats.hits, "発")}
-                    ${createDetailRow("最大散布界", finalStats.group, "cm")}
-                    ${createDetailRow("初弾速度", finalStats.first, "s")}
-                    ${createDetailRow("平均間隔", finalStats.split, "s")}
-                    ${cfg.reloadAt > 0 ? createDetailRow("リロード", finalStats.reload, "s") : ""}
-                    ${createDetailRow("総暴露時間", finalStats.exposure, "s")}
+                
+                <div class="eval-group">
+                    <span class="eval-group-title">【精度 / Accuracy】</span>
+                    ${createDetailRow("目標命中数", finalStats.accuracy.hits, "発")}
+                    ${createDetailRow("最大散布界", finalStats.accuracy.group, "cm")}
                 </div>
+                <div class="eval-group">
+                    <span class="eval-group-title">【速度 / Speed】</span>
+                    ${createDetailRow("初弾反応速度", finalStats.speed.first, "s")}
+                </div>
+                <div class="eval-group">
+                    <span class="eval-group-title">【制御 / Control】</span>
+                    ${createDetailRow("平均連射間隔", finalStats.control.split, "s")}
+                    ${cfg.reloadAt > 0 ? createDetailRow("リロード所要時間", finalStats.control.reload, "s") : ""}
+                </div>
+                <div class="eval-group">
+                    <span class="eval-group-title">【暴露 / Exposure】</span>
+                    ${createDetailRow("総暴露時間", finalStats.exposure.total, "s")}
+                </div>
+
                 <button onclick="exportFullCSV()" style="width:100%; margin-top:20px; padding:18px; background:var(--primary); color:#000; font-weight:bold; border:none; border-radius:4px; font-size:1rem;">CSV詳細レポート出力</button>
             </div>
         `;
@@ -270,14 +294,7 @@
     }
 
     function createDetailRow(lbl, stat, unit) {
-        return `
-            <div class="score-row">
-                <span>${lbl}</span>
-                <div style="display:flex; align-items:center;">
-                    <span class="val-main">${stat.val.toFixed(2)}${unit}</span>
-                    <span class="grade-badge grade-${stat.grade}">${stat.grade}</span>
-                </div>
-            </div>`;
+        return `<div class="score-row"><span>${lbl}</span><div style="display:flex; align-items:center;"><span class="val-main">${stat.val.toFixed(2)}${unit}</span><span class="grade-badge grade-${stat.grade}">${stat.grade}</span></div></div>`;
     }
 
     function drawRadar() {
@@ -285,11 +302,11 @@
         const ctx = cvs.getContext('2d'), r = 130, cx = 200, cy = 200;
         ctx.clearRect(0,0,400,400);
         
-        // グリッドとランク表示
+        // 背景の軸とランク表示
         const ranks = ["D", "C", "B", "A"];
         ctx.textAlign = "center"; ctx.font = "10px monospace";
         for(let j=1; j<=4; j++) {
-            ctx.beginPath(); ctx.strokeStyle = (j===3) ? "var(--primary)" : "#333";
+            ctx.beginPath(); ctx.strokeStyle = (j===3) ? "rgba(255,204,0,0.8)" : "#333";
             ctx.lineWidth = (j===3) ? 2 : 1;
             for(let i=0; i<4; i++) {
                 const a = (Math.PI/2)*i - Math.PI/2;
@@ -300,22 +317,48 @@
         }
 
         const labels = ["精度", "速度", "制御", "暴露"];
-        const scores = [
-            mapToRadar(finalStats.hits.grade), 
-            mapToRadar(finalStats.first.grade), 
-            mapToRadar(finalStats.reload.grade), 
-            mapToRadar(finalStats.exposure.grade)
+        const grades = [
+            finalStats.accuracy.hits.grade, 
+            finalStats.speed.first.grade, 
+            finalStats.control.split.grade, 
+            finalStats.exposure.total.grade
         ];
+        const scores = grades.map(mapToRadar);
 
+        // レーダーチャート描画
         ctx.fillStyle = "rgba(255, 204, 0, 0.4)"; ctx.strokeStyle = "var(--primary)"; ctx.lineWidth = 3;
         ctx.beginPath();
         scores.forEach((s, i) => {
             const a = (Math.PI/2)*i - Math.PI/2;
             ctx.lineTo(cx + r * s * Math.cos(a), cy + r * s * Math.sin(a));
-            ctx.fillStyle = "#fff"; ctx.font = "bold 14px sans-serif";
-            ctx.fillText(labels[i], cx + (r+35)*Math.cos(a), cy + (r+35)*Math.sin(a) + 5);
         });
         ctx.closePath(); ctx.fill(); ctx.stroke();
+
+        // カテゴリラベルとグレードの描画
+        scores.forEach((s, i) => {
+            const a = (Math.PI/2)*i - Math.PI/2;
+            const x = cx + (r+35)*Math.cos(a);
+            const y = cy + (r+35)*Math.sin(a);
+            
+            ctx.fillStyle = "#fff"; ctx.font = "bold 14px sans-serif";
+            ctx.fillText(labels[i], x, y);
+            
+            // レーダー上の各点にグレードを表示
+            const gx = cx + r * s * Math.cos(a);
+            const gy = cy + r * s * Math.sin(a);
+            ctx.fillStyle = "#000";
+            const grade = grades[i];
+            const badgeColor = grade === 'A' ? "#32d74b" : (grade === 'B' ? "#ffcc00" : (grade === 'C' ? "#ff9500" : "#ff3b30"));
+            
+            ctx.beginPath();
+            ctx.fillStyle = badgeColor;
+            ctx.arc(gx, gy, 10, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = "#000";
+            ctx.font = "bold 12px monospace";
+            ctx.fillText(grade, gx, gy + 4);
+        });
     }
 
     function mapToRadar(grade) {
@@ -327,18 +370,19 @@
         const rangeArr = document.getElementById('cfg-range').value.split('/').map(s => s.trim());
         const now = new Date().toLocaleString('ja-JP');
 
-        let headers = ["Timestamp", "ShooterID", "Total_Hits", "Hits_Grade", "Max_Grouping_cm", "Grouping_Grade", "FirstShot_s", "FirstShot_Grade", "AvgSplit_s", "Split_Grade", "Reload_s", "Reload_Grade", "TotalExposure_s", "Exposure_Grade"];
+        let headers = ["Timestamp", "ShooterID", "Total_Shots", "Goal_Hits", "Actual_Hits", "Hits_Grade", "Max_Grouping_cm", "Grouping_Grade", "FirstShot_s", "FirstShot_Grade", "AvgSplit_s", "Split_Grade", "Reload_s", "Reload_Grade", "TotalExposure_s", "Exposure_Grade"];
         rangeArr.forEach((r, i) => { headers.push(`Range_T${i+1}_m`, `Grouping_T${i+1}_cm`); });
         for(let i=1; i<=shotTimes.length; i++) headers.push(`Shot${i}_Time`);
 
         let row = [
             now, shooter, 
-            finalStats.hits.val, finalStats.hits.grade,
-            finalStats.group.val.toFixed(2), finalStats.group.grade,
-            finalStats.first.val.toFixed(2), finalStats.first.grade,
-            finalStats.split.val.toFixed(2), finalStats.split.grade,
-            finalStats.reload.val.toFixed(2), finalStats.reload.grade,
-            finalStats.exposure.val.toFixed(2), finalStats.exposure.grade
+            document.getElementById('cfg-total-shots').value, document.getElementById('cfg-target-hits').value,
+            finalStats.accuracy.hits.val, finalStats.accuracy.hits.grade,
+            finalStats.accuracy.group.val.toFixed(2), finalStats.accuracy.group.grade,
+            finalStats.speed.first.val.toFixed(2), finalStats.speed.first.grade,
+            finalStats.control.split.val.toFixed(2), finalStats.control.split.grade,
+            finalStats.control.reload.val.toFixed(2), finalStats.control.reload.grade,
+            finalStats.exposure.total.val.toFixed(2), finalStats.exposure.total.grade
         ];
         rangeArr.forEach((r, i) => { row.push(r, (individualGroupings[i]||0).toFixed(2)); });
         shotTimes.forEach(t => row.push(t.toFixed(2)));
@@ -347,7 +391,7 @@
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = `MaLI_TacticalReport_${shooter}.csv`;
+        link.download = `MaLI_Report_${shooter}.csv`;
         link.click();
     }
 
