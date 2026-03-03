@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MaLI ver40 - Marksmanship Lethality Indicator</title>
+    <title>MaLI ver45 - Tactical Eval</title>
     <style>
         :root { 
             --primary: #ffcc00; --bg: #0a0a0a; --panel: #1a1a1a; 
@@ -13,99 +13,84 @@
         body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: var(--bg); color: #eeeeee; margin: 0; padding: 10px; padding-bottom: 30px; }
         .app-header { text-align: center; padding: 15px 0; border-bottom: 2px solid var(--primary); margin-bottom: 20px; }
         .app-title-main { font-size: 1.2rem; font-weight: 900; color: var(--primary); letter-spacing: 2px; margin: 0; }
-        .app-title-sub { font-size: 0.7rem; color: var(--text-dim); margin-top: 4px; }
         .card { background: var(--panel); border-radius: 8px; padding: 18px; margin-bottom: 15px; border: 1px solid #333; }
         h2 { font-size: 0.85rem; margin: 0 0 15px 0; color: var(--primary); border-left: 3px solid var(--primary); padding-left: 10px; text-transform: uppercase; }
         .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         label { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; display: block; font-weight: bold; }
-        input[type="number"], input[type="text"], select { width: 92%; background: var(--input-bg); border: none; color: var(--input-text); padding: 12px; border-radius: 4px; font-size: 1rem; font-weight: bold; }
-        
+        input[type="number"], input[type="text"] { width: 92%; background: var(--input-bg); border: none; color: var(--input-text); padding: 12px; border-radius: 4px; font-size: 1rem; font-weight: bold; }
         #timer-val { font-size: 5rem; font-weight: 800; text-align: center; color: var(--success); margin: 10px 0; font-family: monospace; }
         .sens-area { background: #000; padding: 15px; border-radius: 4px; border: 1px solid #333; margin-bottom: 15px; }
-        #viz { width: 100%; height: 60px; display: block; background: #050505; margin-top: 10px; }
-        
+        #viz { width: 100%; height: 60px; display: block; }
         .btn-main { background: var(--primary); color: #000; width: 100%; padding: 25px; border-radius: 4px; font-weight: 900; font-size: 1.5rem; cursor: pointer; border: none; }
         .upload-btn { background: var(--accent); color: #fff; padding: 12px; width: 100%; border: none; font-weight: bold; border-radius: 4px; margin-bottom: 8px; cursor: pointer; }
-        .canvas-container { width: 100%; background: #000; position: relative; border: 1px solid #444; border-radius: 4px; overflow: hidden; }
-        canvas.shot-canvas { width: 100%; height: 100%; display: block; }
-        .score-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #1c1c1e; font-size: 0.85rem; }
-        .delta.pos-good, .delta.neg-good { color: var(--success); font-weight: bold; }
-        .delta.pos-bad, .delta.neg-bad { color: var(--danger); font-weight: bold; }
+        .canvas-container { width: 100%; background: #000; margin-bottom: 10px; border: 1px solid #444; border-radius: 4px; overflow: hidden; }
+        canvas.shot-canvas { width: 100%; height: auto; display: block; }
+        .score-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #2c2c2e; font-size: 0.85rem; }
+        .grade-badge { width: 24px; height: 24px; display: inline-flex; justify-content: center; align-items: center; border-radius: 50%; font-weight: 900; margin-left: 8px; font-size: 0.75rem; }
+        .grade-A { background: var(--success); color: #000; }
+        .grade-B { background: var(--primary); color: #000; }
+        .grade-C { background: #ff9500; color: #000; }
+        .grade-D { background: var(--danger); color: #fff; }
+        .val-main { font-family: monospace; font-weight: bold; font-size: 1rem; }
     </style>
 </head>
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver40</h1>
-    <p class="app-title-sub">Marksmanship Lethality Indicator</p>
+    <h1 class="app-title-main">MaLI ver45 - Tactical Eval</h1>
 </header>
 
 <div class="card">
-    <h2>1. Scenario & Goals</h2>
-    <div style="margin-bottom:15px;">
-        <label>シナリオ選択</label>
-        <select id="scenario-select" onchange="applyScenario()">
-            <option value="cqb">シナリオ１：近接射撃 (CQB)</option>
-            <option value="long">シナリオ２：複数距離射撃 (Range)</option>
-            <option value="free" selected>シナリオ３：自由設定 (Custom)</option>
-        </select>
-    </div>
+    <h2>1. Scenario Config</h2>
     <div class="config-grid">
-        <div style="grid-column: span 2;"><label>オペレーター ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
-        <div><label>予定発射数</label><input type="number" id="cfg-total-shots" value="5"></div>
+        <div style="grid-column: span 2;"><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
+        <div style="grid-column: span 2;">
+            <label>射距離 (m) ※複数なら / で区切る (例: 10 / 25)</label>
+            <input type="text" id="cfg-range" value="10" oninput="autoConfigTargets(this.value)">
+        </div>
+        <div><label>的の数</label><input type="number" id="cfg-target-count" value="1" readonly></div>
+        <div><label>予定発射数 (合計)</label><input type="number" id="cfg-total-shots" value="5"></div>
         <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="90"></div>
         <div><label>目標散布界 (cm)</label><input type="number" id="cfg-target-grouping" value="15.0"></div>
-        <div><label>目標初弾 (秒)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
-        <div><label>目標射撃間隔 (秒)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
-        <div><label>目標リロード (秒)</label><input type="number" id="cfg-target-reload" value="3.5" step="0.1"></div>
-        <div><label>リロード発生弾数</label><input type="number" id="cfg-reload-at" value="3"></div>
+        <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
+        <div><label>目標間隔 (s)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
+        <div><label>目標リロード (s)</label><input type="number" id="cfg-target-reload" value="3.5" step="0.1"></div>
+        <div><label>リロード弾数</label><input type="number" id="cfg-reload-at" value="0"></div>
     </div>
 </div>
 
 <div class="card">
-    <h2>2. Timer & Sensitivity</h2>
+    <h2>2. Timer</h2>
     <div class="sens-area">
-        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-            <label style="color:var(--primary)">検知閾値 (Threshold)</label>
-            <span id="sens-val" style="color:var(--primary); font-family:monospace; font-weight:bold;">0.85</span>
-        </div>
+        <label>閾値: <span id="sens-val">0.85</span></label>
         <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.85" oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
         <canvas id="viz"></canvas>
     </div>
     <div id="timer-val">0.00</div>
-    <button id="startBtn" class="btn-main">計測開始 (START)</button>
+    <button id="startBtn" class="btn-main">START</button>
 </div>
 
 <div id="acquisition-area" style="display:none;" class="card">
-    <h2>3. Blue Mark Analysis</h2>
-    <button class="upload-btn" onclick="document.getElementById('file-input').click()">標的写真を解析</button>
-    <input type="file" id="file-input" accept="image/*" style="display:none" onchange="processTargetImage(this)">
-    <div id="canvas-wrapper" class="canvas-container"><canvas id="main-canvas" class="shot-canvas"></canvas></div>
+    <h2>3. Target Analysis</h2>
+    <button class="upload-btn" onclick="document.getElementById('file-input').click()">写真を一括アップロード</button>
+    <input type="file" id="file-input" accept="image/*" multiple style="display:none" onchange="processMultipleImages(this)">
+    <div id="canvas-list"></div>
 </div>
 
 <div id="assessment-area" style="display:none;"></div>
 
 <script>
-    const scenarios = {
-        cqb: { shots: 5, height: 90, group: 30, first: 2.0, split: 2.0, reload: 4.0, reloadAt: 3 },
-        long: { shots: 6, height: 90, group: 70, first: 5.5, split: 5.0, reload: 6.0, reloadAt: 4 },
-        free: { shots: 10, height: 90, group: 50, first: 3.5, split: 3.5, reload: 5, reloadAt: 5 }
-    };
-
     let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
-    let analysisResult = { count: 0, grouping: 0 };
-    let finalScores = { accuracy: 0, speed: 0, control: 0, exposure: 0 };
+    let cumulativeHits = 0, individualGroupings = [], finalStats = {};
     const vizCanvas = document.getElementById('viz'), vizCtx = vizCanvas.getContext('2d');
 
-    function applyScenario() {
-        const s = scenarios[document.getElementById('scenario-select').value];
-        document.getElementById('cfg-total-shots').value = s.shots;
-        document.getElementById('cfg-target-height').value = s.height;
-        document.getElementById('cfg-target-grouping').value = s.group;
-        document.getElementById('cfg-target-first').value = s.first;
-        document.getElementById('cfg-target-split').value = s.split;
-        document.getElementById('cfg-target-reload').value = s.reload;
-        document.getElementById('cfg-reload-at').value = s.reloadAt;
+    function autoConfigTargets(val) {
+        const ranges = val.split('/').map(r => r.trim()).filter(r => r !== "");
+        document.getElementById('cfg-target-count').value = ranges.length || 1;
+        if (ranges.length > 0) {
+            const maxRange = Math.max(...ranges.map(Number));
+            document.getElementById('cfg-target-grouping').value = (maxRange * 1.2).toFixed(1);
+        }
     }
 
     async function initAudio() {
@@ -128,83 +113,114 @@
             if (i === 0) vizCtx.moveTo(x, y); else vizCtx.lineTo(x, y); x += slice;
         }
         vizCtx.stroke();
-        const th = parseFloat(document.getElementById('mic-sens').value);
-        vizCtx.strokeStyle = "red"; vizCtx.beginPath();
-        vizCtx.moveTo(0, vizCanvas.height * (1-th)); vizCtx.lineTo(vizCanvas.width, vizCanvas.height * (1-th)); vizCtx.stroke();
         if (isRunning) checkShot();
     }
 
     function checkShot() {
+        const now = (performance.now() - startTime) / 1000;
+        if (now < 0.2) return; 
         let max = 0; for (let i = 0; i < dataArray.length; i++) { let v = Math.abs(dataArray[i] - 128) / 128; if (v > max) max = v; }
         const th = parseFloat(document.getElementById('mic-sens').value);
-        if (max > th) {
-            const now = (performance.now() - startTime) / 1000;
-            if (shotTimes.length === 0 || (now - shotTimes[shotTimes.length-1]) > 0.12) {
-                shotTimes.push(now); document.getElementById('timer-val').innerText = now.toFixed(2);
-                if (shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
-            }
+        const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
+        let deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? 1.2 : 0.08; 
+
+        if (max > th && (shotTimes.length === 0 || (now - shotTimes[shotTimes.length-1]) > deadTime)) {
+            shotTimes.push(now);
+            document.getElementById('timer-val').innerText = now.toFixed(2);
+            if (shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
         }
     }
 
     function finishEngagement() {
-        isRunning = false; document.getElementById('startBtn').innerText = "計測完了";
+        isRunning = false; document.getElementById('startBtn').innerText = "DONE";
         document.getElementById('acquisition-area').style.display = 'block';
     }
 
-    function analyzeBlueMarks(ctx, w, h) {
+    async function processMultipleImages(input) {
+        const files = Array.from(input.files);
+        const container = document.getElementById('canvas-list');
+        container.innerHTML = ""; cumulativeHits = 0; individualGroupings = [];
+        for (let i = 0; i < files.length; i++) {
+            const wrapper = document.createElement('div');
+            wrapper.className = "canvas-container";
+            const cvs = document.createElement('canvas'); cvs.className = "shot-canvas";
+            wrapper.appendChild(cvs); container.appendChild(wrapper);
+            await new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                    const ctx = cvs.getContext('2d');
+                    const MAX_W = 1000;
+                    let drawW = img.width, drawH = img.height;
+                    if (drawW > MAX_W) { drawH *= MAX_W/drawW; drawW = MAX_W; }
+                    cvs.width = drawW; cvs.height = drawH;
+                    ctx.drawImage(img, 0, 0, drawW, drawH);
+                    const res = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
+                    cumulativeHits += res.count; individualGroupings.push(res.grouping);
+                    resolve();
+                };
+                img.src = URL.createObjectURL(files[i]);
+            });
+        }
+        generateAssessment();
+    }
+
+    function analyzeBlueMarks(ctx, w, h, targetNum) {
         const imageData = ctx.getImageData(0, 0, w, h);
         const data = imageData.data;
         let pts = [];
         for (let i = 0; i < data.length; i += 16) {
             const r = data[i], g = data[i+1], b = data[i+2];
-            if (b > 110 && b > r * 1.6 && b > g * 1.3) {
-                pts.push({ x: (i / 4) % w, y: Math.floor((i / 4) / w) });
-            }
+            if (b > 110 && b > r * 1.5 && b > g * 1.2) pts.push({ x: (i / 4) % w, y: Math.floor((i / 4) / w) });
         }
         let clusters = [];
         pts.forEach(p => {
             let found = false;
             for (let c of clusters) {
-                if (Math.sqrt((c.x - p.x)**2 + (c.y - p.y)**2) < 30) {
+                if (Math.sqrt((c.x - p.x)**2 + (c.y - p.y)**2) < 20) {
                     c.x = (c.x + p.x) / 2; c.y = (c.y + p.y) / 2; c.size++; found = true; break;
                 }
             }
             if (!found) clusters.push({ x: p.x, y: p.y, size: 1 });
         });
-        const finalShots = clusters.filter(c => c.size > 2);
-        ctx.strokeStyle = '#007aff'; ctx.lineWidth = 6;
-        finalShots.forEach(s => {
-            ctx.beginPath(); ctx.arc(s.x, s.y, 30, 0, Math.PI * 2); ctx.stroke();
-            ctx.fillStyle = "rgba(0, 122, 255, 0.3)"; ctx.fill();
+        const avgSize = 90;
+        let finalShots = [];
+        clusters.forEach(c => {
+            if (c.size > 8) {
+                let count = Math.max(1, Math.round(c.size / avgSize));
+                for(let k=0; k<count; k++) finalShots.push({ x: c.x + (k*3), y: c.y + (k*3) });
+            }
         });
+        ctx.strokeStyle = '#007aff'; ctx.lineWidth = 5;
+        finalShots.forEach(s => { ctx.beginPath(); ctx.arc(s.x, s.y, 25, 0, Math.PI * 2); ctx.stroke(); });
+        const cmPerPx = parseFloat(document.getElementById('cfg-target-height').value) / h;
         let maxD = 0;
         for (let i = 0; i < finalShots.length; i++) 
             for (let j = i + 1; j < finalShots.length; j++) 
                 maxD = Math.max(maxD, Math.sqrt((finalShots[i].x-finalShots[j].x)**2 + (finalShots[i].y-finalShots[j].y)**2));
-        const cmPerPx = parseFloat(document.getElementById('cfg-target-height').value) / h;
         return { count: finalShots.length, grouping: maxD * cmPerPx };
     }
 
-    function processTargetImage(input) {
-        const file = input.files[0]; if(!file) return;
-        const img = new Image();
-        img.onload = () => {
-            const cvs = document.getElementById('main-canvas'), ctx = cvs.getContext('2d');
-            const wrapper = document.getElementById('canvas-wrapper');
-            const scale = wrapper.offsetWidth / img.width;
-            cvs.width = wrapper.offsetWidth; cvs.height = img.height * scale;
-            wrapper.style.height = cvs.height + "px";
-            ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
-            analysisResult = analyzeBlueMarks(ctx, cvs.width, cvs.height);
-            generateAssessment();
-        };
-        img.src = URL.createObjectURL(file);
+    function getGrade(actual, goal, isLowerBetter = true) {
+        if (actual === 0 && !isLowerBetter) return 'D';
+        const ratio = actual / goal;
+        if (isLowerBetter) {
+            if (ratio <= 0.85) return 'A';
+            if (ratio <= 1.15) return 'B'; // 目標値付近はB
+            if (ratio <= 1.40) return 'C';
+            return 'D';
+        } else {
+            if (ratio >= 1.10) return 'A';
+            if (ratio >= 0.90) return 'B';
+            if (ratio >= 0.70) return 'C';
+            return 'D';
+        }
     }
 
     function generateAssessment() {
         const area = document.getElementById('assessment-area');
         area.innerHTML = ""; area.style.display = 'block';
-        const goal = {
+        
+        const cfg = {
             shots: parseInt(document.getElementById('cfg-total-shots').value),
             group: parseFloat(document.getElementById('cfg-target-grouping').value),
             first: parseFloat(document.getElementById('cfg-target-first').value),
@@ -212,113 +228,126 @@
             reload: parseFloat(document.getElementById('cfg-target-reload').value),
             reloadAt: parseInt(document.getElementById('cfg-reload-at').value)
         };
-        
-        const goalTotal = goal.first + (goal.split * (goal.shots - 1)) + (goal.reloadAt > 0 ? goal.reload : 0);
-        
-        // 射撃間隔の平均値を計算 (リロード箇所を除く)
+
+        const firstShot = shotTimes[0] || 0;
         let splits = [];
         for(let i=1; i<shotTimes.length; i++) {
-            if(goal.reloadAt > 0 && i === goal.reloadAt) continue; 
+            if(cfg.reloadAt > 0 && i === cfg.reloadAt) continue; 
             splits.push(shotTimes[i] - shotTimes[i-1]);
         }
         const avgSplit = splits.length > 0 ? splits.reduce((a,b)=>a+b,0)/splits.length : 0;
+        const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt]) ? (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt-1]) : 0;
+        const totalTime = shotTimes[shotTimes.length-1] || 0;
+        const maxGrp = Math.max(...individualGroupings, 0);
 
-        const act = {
-            hits: analysisResult.count,
-            group: analysisResult.grouping,
-            first: shotTimes[0] || 0,
-            split: avgSplit,
-            reload: (goal.reloadAt > 0 && shotTimes[goal.reloadAt]) ? (shotTimes[goal.reloadAt] - shotTimes[goal.reloadAt-1]) : 0,
-            total: shotTimes[shotTimes.length-1] || 0
+        finalStats = {
+            hits: { val: cumulativeHits, goal: cfg.shots, grade: getGrade(cumulativeHits, cfg.shots, false) },
+            group: { val: maxGrp, goal: cfg.group, grade: getGrade(maxGrp, cfg.group, true) },
+            first: { val: firstShot, goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) },
+            split: { val: avgSplit, goal: cfg.split, grade: getGrade(avgSplit, cfg.split, true) },
+            reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' },
+            exposure: { val: totalTime, goal: (cfg.first + cfg.split*(cfg.shots-1) + (cfg.reloadAt>0?cfg.reload:0)), grade: getGrade(totalTime, (cfg.first + cfg.split*(cfg.shots-1) + (cfg.reloadAt>0?cfg.reload:0)), true) }
         };
-
-        const s = (a, g, inv=true) => { if(a===0) return 0.01; let v = inv ? (g/a) : (a/g); return Math.min(1.0, v * 0.75); };
-        finalScores.accuracy = Math.min(1.0, (act.hits/goal.shots)*0.75);
-        finalScores.speed = s(act.first, goal.first);
-        finalScores.control = s(act.reload, goal.reload);
-        finalScores.exposure = s(act.total, goalTotal);
 
         area.innerHTML = `
             <div class="card">
-                <h2>4. Analysis Result (B=Target Achieved)</h2>
+                <h2>4. Comprehensive Analysis</h2>
                 <div style="display:flex; justify-content:center; background:#000; padding:10px; border-radius:8px;">
-                    <canvas id="radarCanvas" width="500" height="500" style="width:280px; height:280px;"></canvas>
+                    <canvas id="radarCanvas" width="400" height="400" style="width:280px; height:280px;"></canvas>
                 </div>
-                <div style="margin-top:15px;">
-                    <p style="color:var(--primary); font-weight:bold; font-size:0.9rem;">【精度 (Accuracy)】</p>
-                    ${createRow("命中数", act.hits, goal.shots, "発", true)}
-                    ${createRow("散布界", act.group, goal.group, "cm", false)}
-                    <p style="color:var(--primary); font-weight:bold; font-size:0.9rem; margin-top:10px;">【速度 (Speed)】</p>
-                    ${createRow("初弾速度", act.first, goal.first, "s", false)}
-                    ${createRow("平均間隔", act.split, goal.split, "s", false)}
-                    <p style="color:var(--primary); font-weight:bold; font-size:0.9rem; margin-top:10px;">【制御 (Control)】</p>
-                    ${createRow("リロード", act.reload, goal.reload, "s", false)}
-                    <p style="color:var(--primary); font-weight:bold; font-size:0.9rem; margin-top:10px;">【暴露 (Exposure)】</p>
-                    ${createRow("総暴露時間", act.total, goalTotal, "s", false)}
+                <div style="margin-top:20px;">
+                    ${createDetailRow("合計命中数", finalStats.hits, "発")}
+                    ${createDetailRow("最大散布界", finalStats.group, "cm")}
+                    ${createDetailRow("初弾速度", finalStats.first, "s")}
+                    ${createDetailRow("平均間隔", finalStats.split, "s")}
+                    ${cfg.reloadAt > 0 ? createDetailRow("リロード", finalStats.reload, "s") : ""}
+                    ${createDetailRow("総暴露時間", finalStats.exposure, "s")}
                 </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px;">
-                    <button onclick="exportExcelStyleCSV(${goalTotal}, ${avgSplit})" style="padding:15px; background:#444; color:#fff; border:none; border-radius:4px; font-weight:bold;">CSV出力 (データセット)</button>
-                    <button onclick="location.reload()" style="padding:15px; background:var(--danger); color:#fff; border:none; border-radius:4px; font-weight:bold;">再試行</button>
-                </div>
+                <button onclick="exportFullCSV()" style="width:100%; margin-top:20px; padding:18px; background:var(--primary); color:#000; font-weight:bold; border:none; border-radius:4px; font-size:1rem;">CSV詳細レポート出力</button>
             </div>
         `;
-        drawRadar(act, goal, goalTotal);
+        setTimeout(drawRadar, 100);
     }
 
-    function createRow(lbl, act, gol, unt, mib) {
-        const diff = act - gol;
-        const cls = mib ? (diff >= 0 ? "pos-good" : "neg-bad") : (act <= gol ? "neg-good" : "pos-bad");
-        return `<div class="score-row"><span>${lbl}</span><span>${act.toFixed(2)}${unt} <span class="delta ${cls}">(${diff >= 0 ? '+' : ''}${diff.toFixed(2)})</span></span></div>`;
+    function createDetailRow(lbl, stat, unit) {
+        return `
+            <div class="score-row">
+                <span>${lbl}</span>
+                <div style="display:flex; align-items:center;">
+                    <span class="val-main">${stat.val.toFixed(2)}${unit}</span>
+                    <span class="grade-badge grade-${stat.grade}">${stat.grade}</span>
+                </div>
+            </div>`;
     }
 
-    function drawRadar(act, goal, goalTotal) {
-        const cvs = document.getElementById('radarCanvas'), ctx = cvs.getContext('2d');
-        const r = 135, cx = 250, cy = 250; ctx.clearRect(0,0,500,500);
+    function drawRadar() {
+        const cvs = document.getElementById('radarCanvas'); if(!cvs) return;
+        const ctx = cvs.getContext('2d'), r = 130, cx = 200, cy = 200;
+        ctx.clearRect(0,0,400,400);
+        
+        // グリッドとランク表示
         const ranks = ["D", "C", "B", "A"];
-        for(let j=1; j<=4; j++){
-            ctx.beginPath(); ctx.strokeStyle = (j===3) ? "#ffcc00" : "#333";
-            for(let i=0; i<4; i++){
+        ctx.textAlign = "center"; ctx.font = "10px monospace";
+        for(let j=1; j<=4; j++) {
+            ctx.beginPath(); ctx.strokeStyle = (j===3) ? "var(--primary)" : "#333";
+            ctx.lineWidth = (j===3) ? 2 : 1;
+            for(let i=0; i<4; i++) {
                 const a = (Math.PI/2)*i - Math.PI/2;
                 ctx.lineTo(cx+(r*j/4)*Math.cos(a), cy+(r*j/4)*Math.sin(a));
             }
             ctx.closePath(); ctx.stroke();
-            ctx.fillStyle = "#666"; ctx.font = "14px monospace"; ctx.fillText(ranks[j-1], cx + 5, cy - (r*j/4) + 5);
+            ctx.fillStyle = "#666"; ctx.fillText(ranks[j-1], cx, cy - (r*j/4) + 10);
         }
-        const points = [finalScores.accuracy, finalScores.speed, finalScores.control, finalScores.exposure];
-        ctx.fillStyle = "rgba(255, 204, 0, 0.4)"; ctx.strokeStyle = "#ffcc00"; ctx.lineWidth = 5;
-        ctx.beginPath(); points.forEach((p, i) => { const a = (Math.PI/2)*i - Math.PI/2; ctx.lineTo(cx + r*Math.max(0.1, p)*Math.cos(a), cy + r*Math.max(0.1, p)*Math.sin(a)); });
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = "#fff"; ctx.font = "bold 26px sans-serif"; ctx.textAlign = "center";
+
         const labels = ["精度", "速度", "制御", "暴露"];
-        labels.forEach((l, i) => { const a = (Math.PI/2)*i - Math.PI/2; ctx.fillText(l, cx + (r+60)*Math.cos(a), cy + (r+60)*Math.sin(a) + 10); });
+        const scores = [
+            mapToRadar(finalStats.hits.grade), 
+            mapToRadar(finalStats.first.grade), 
+            mapToRadar(finalStats.reload.grade), 
+            mapToRadar(finalStats.exposure.grade)
+        ];
+
+        ctx.fillStyle = "rgba(255, 204, 0, 0.4)"; ctx.strokeStyle = "var(--primary)"; ctx.lineWidth = 3;
+        ctx.beginPath();
+        scores.forEach((s, i) => {
+            const a = (Math.PI/2)*i - Math.PI/2;
+            ctx.lineTo(cx + r * s * Math.cos(a), cy + r * s * Math.sin(a));
+            ctx.fillStyle = "#fff"; ctx.font = "bold 14px sans-serif";
+            ctx.fillText(labels[i], cx + (r+35)*Math.cos(a), cy + (r+35)*Math.sin(a) + 5);
+        });
+        ctx.closePath(); ctx.fill(); ctx.stroke();
     }
 
-    function exportExcelStyleCSV(goalTotal, avgSplit) {
+    function mapToRadar(grade) {
+        return { 'A': 1.0, 'B': 0.75, 'C': 0.5, 'D': 0.25 }[grade] || 0.25;
+    }
+
+    function exportFullCSV() {
         const shooter = document.getElementById('cfg-shooter').value;
+        const rangeArr = document.getElementById('cfg-range').value.split('/').map(s => s.trim());
         const now = new Date().toLocaleString('ja-JP');
-        
-        // ヘッダー作成 (弾数に応じてShot1, Shot2...)
-        let headers = ["日時", "射手", "目標命中", "実績命中", "目標散布界", "実績散布界", "目標初弾", "実績初弾", "目標間隔", "平均間隔", "目標リロード", "実績リロード", "目標総時間", "実績総時間", "精度スコア", "速度スコア", "制御スコア", "暴露スコア"];
+
+        let headers = ["Timestamp", "ShooterID", "Total_Hits", "Hits_Grade", "Max_Grouping_cm", "Grouping_Grade", "FirstShot_s", "FirstShot_Grade", "AvgSplit_s", "Split_Grade", "Reload_s", "Reload_Grade", "TotalExposure_s", "Exposure_Grade"];
+        rangeArr.forEach((r, i) => { headers.push(`Range_T${i+1}_m`, `Grouping_T${i+1}_cm`); });
         for(let i=1; i<=shotTimes.length; i++) headers.push(`Shot${i}_Time`);
 
-        // データ作成
         let row = [
             now, shooter, 
-            document.getElementById('cfg-total-shots').value, analysisResult.count,
-            document.getElementById('cfg-target-grouping').value, analysisResult.grouping.toFixed(2),
-            document.getElementById('cfg-target-first').value, (shotTimes[0] || 0).toFixed(2),
-            document.getElementById('cfg-target-split').value, avgSplit.toFixed(2),
-            document.getElementById('cfg-target-reload').value, (finalScores.control > 0 ? (shotTimes[parseInt(document.getElementById('cfg-reload-at').value)]-shotTimes[parseInt(document.getElementById('cfg-reload-at').value)-1]) : 0).toFixed(2),
-            goalTotal.toFixed(2), (shotTimes[shotTimes.length-1] || 0).toFixed(2),
-            finalScores.accuracy.toFixed(3), finalScores.speed.toFixed(3), finalScores.control.toFixed(3), finalScores.exposure.toFixed(3)
+            finalStats.hits.val, finalStats.hits.grade,
+            finalStats.group.val.toFixed(2), finalStats.group.grade,
+            finalStats.first.val.toFixed(2), finalStats.first.grade,
+            finalStats.split.val.toFixed(2), finalStats.split.grade,
+            finalStats.reload.val.toFixed(2), finalStats.reload.grade,
+            finalStats.exposure.val.toFixed(2), finalStats.exposure.grade
         ];
+        rangeArr.forEach((r, i) => { row.push(r, (individualGroupings[i]||0).toFixed(2)); });
         shotTimes.forEach(t => row.push(t.toFixed(2)));
 
         let csvContent = "\uFEFF" + headers.join(",") + "\n" + row.join(",");
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = `MaLI_v40_Data_${shooter}.csv`;
+        link.download = `MaLI_TacticalReport_${shooter}.csv`;
         link.click();
     }
 
@@ -328,7 +357,7 @@
             const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
             osc.start(); osc.stop(audioCtx.currentTime + 0.3);
             startTime = performance.now(); isRunning = true;
-            document.getElementById('timer-val').innerText = "0.00"; document.getElementById('startBtn').innerText = "計測中...";
+            document.getElementById('timer-val').innerText = "0.00";
         }, 2000 + Math.random() * 2000);
     };
 </script>
