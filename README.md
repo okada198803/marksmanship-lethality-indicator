@@ -1,4 +1,4 @@
-# MaLI (Marksmanship Lethality Indicator) ver45 - Tactical Eval
+# MaLI (Marksmanship Lethality Indicator) ver46 - Tactical Eval
 
 **MaLI** は、射撃訓練のパフォーマンスを科学的・多角的に測定するためのオープンソース・タクティカル・アナリティクス・ツールです。デバイスのマイクを用いた「精密ショットタイマー」と、画像解析による「着弾点評価」を統合し、データに基づいたフィードバックを即座に提供します。
 
