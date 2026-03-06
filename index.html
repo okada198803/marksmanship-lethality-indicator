@@ -3,57 +3,206 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MaLI ver46 - Tactical Analytics</title>
+    <title>MaLI ver47 - Tactical Analytics</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
+
         :root { 
-            --primary: #ffcc00; --bg: #0a0a0a; --panel: #1a1a1a; 
-            --accent: #007aff; --danger: #ff3b30; --success: #32d74b; 
-            --text-dim: #888888; --input-bg: #f5f5f5; --input-text: #1a1a1a;
+            --primary: #ffcc00; --bg: #080808; --panel: #111111; 
+            --panel2: #161616; --accent: #007aff; --danger: #ff3b30; 
+            --success: #32d74b; --text-dim: #666; --input-bg: #f0f0f0; 
+            --input-text: #111; --border: #2a2a2a;
         }
-        body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: var(--bg); color: #eeeeee; margin: 0; padding: 10px; padding-bottom: 30px; }
-        .app-header { text-align: center; padding: 15px 0; border-bottom: 2px solid var(--primary); margin-bottom: 20px; }
-        .app-title-main { font-size: 1.2rem; font-weight: 900; color: var(--primary); letter-spacing: 2px; margin: 0; }
-        .card { background: var(--panel); border-radius: 8px; padding: 18px; margin-bottom: 15px; border: 1px solid #333; }
-        h2 { font-size: 0.85rem; margin: 0 0 15px 0; color: var(--primary); border-left: 3px solid var(--primary); padding-left: 10px; text-transform: uppercase; }
-        .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        label { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; display: block; font-weight: bold; }
-        input[type="number"], input[type="text"] { width: 92%; background: var(--input-bg); border: none; color: var(--input-text); padding: 12px; border-radius: 4px; font-size: 1rem; font-weight: bold; }
-        #timer-val { font-size: 5rem; font-weight: 800; text-align: center; color: var(--success); margin: 10px 0; font-family: monospace; }
-        .sens-area { background: #000; padding: 15px; border-radius: 4px; border: 1px solid #333; margin-bottom: 15px; }
-        #viz { width: 100%; height: 60px; display: block; }
-        .btn-main { background: var(--primary); color: #000; width: 100%; padding: 25px; border-radius: 4px; font-weight: 900; font-size: 1.5rem; cursor: pointer; border: none; }
-        .upload-btn { background: var(--accent); color: #fff; padding: 12px; width: 100%; border: none; font-weight: bold; border-radius: 4px; margin-bottom: 8px; cursor: pointer; }
-        .canvas-container { width: 100%; background: #000; margin-bottom: 10px; border: 1px solid #444; border-radius: 4px; overflow: hidden; }
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Barlow Condensed', 'Hiragino Sans', 'Yu Gothic', sans-serif; 
+            background: var(--bg); color: #ddd; margin: 0; padding: 10px; 
+            padding-bottom: 40px; letter-spacing: 0.02em;
+        }
+
+        /* ─── HEADER ─── */
+        .app-header { 
+            text-align: center; padding: 14px 0; 
+            border-bottom: 1px solid var(--border); margin-bottom: 16px;
+            position: relative;
+        }
+        .app-title-main { 
+            font-size: 1.1rem; font-weight: 900; color: var(--primary); 
+            letter-spacing: 4px; margin: 0; font-family: 'Share Tech Mono', monospace;
+        }
+        .app-subtitle { font-size: 0.65rem; color: var(--text-dim); letter-spacing: 3px; margin-top: 3px; }
+
+        /* ─── TABS ─── */
+        .tab-bar { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+        .tab-btn { 
+            flex: 1; padding: 10px 4px; background: var(--panel); color: var(--text-dim); 
+            border: none; font-size: 0.65rem; font-weight: 700; letter-spacing: 1px; 
+            cursor: pointer; text-transform: uppercase; transition: all 0.15s;
+            font-family: 'Barlow Condensed', sans-serif;
+        }
+        .tab-btn.active { background: var(--primary); color: #000; }
+        .tab-btn:not(.active):hover { background: #222; color: #aaa; }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        /* ─── CARDS ─── */
+        .card { 
+            background: var(--panel); border-radius: 6px; padding: 16px; 
+            margin-bottom: 12px; border: 1px solid var(--border); 
+        }
+        h2 { 
+            font-size: 0.75rem; margin: 0 0 14px 0; color: var(--primary); 
+            border-left: 2px solid var(--primary); padding-left: 8px; 
+            text-transform: uppercase; letter-spacing: 2px; font-family: 'Share Tech Mono', monospace;
+        }
+
+        /* ─── INPUTS ─── */
+        .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        label { font-size: 0.65rem; color: var(--text-dim); margin-bottom: 3px; display: block; font-weight: 700; letter-spacing: 0.5px; }
+        input[type="number"], input[type="text"] { 
+            width: 100%; background: var(--input-bg); border: none; color: var(--input-text); 
+            padding: 10px; border-radius: 4px; font-size: 0.95rem; font-weight: 700;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        /* ─── TIMER ─── */
+        #timer-val { 
+            font-size: 5.5rem; font-weight: 800; text-align: center; color: var(--success); 
+            margin: 8px 0; font-family: 'Share Tech Mono', monospace; line-height: 1;
+            text-shadow: 0 0 30px rgba(50,215,75,0.3);
+            transition: color 0.1s;
+        }
+        #timer-val.shot-flash { color: var(--primary); text-shadow: 0 0 40px rgba(255,204,0,0.6); }
+
+        /* ─── SHOT LOG ─── */
+        .shot-log { 
+            display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; 
+            min-height: 32px; padding: 8px; background: #000; border-radius: 4px;
+        }
+        .shot-badge { 
+            font-family: 'Share Tech Mono', monospace; font-size: 0.7rem; 
+            padding: 3px 8px; background: #1a1a1a; border: 1px solid #333; 
+            border-radius: 3px; color: var(--primary);
+        }
+        .shot-badge.reload-badge { border-color: var(--accent); color: var(--accent); }
+
+        /* ─── SENS AREA ─── */
+        .sens-area { background: #000; padding: 12px; border-radius: 4px; border: 1px solid #222; margin-bottom: 12px; }
+        #viz { width: 100%; height: 50px; display: block; }
+
+        /* ─── BUTTONS ─── */
+        .btn-main { 
+            background: var(--primary); color: #000; width: 100%; padding: 22px; 
+            border-radius: 4px; font-weight: 900; font-size: 1.4rem; cursor: pointer; 
+            border: none; letter-spacing: 3px; font-family: 'Barlow Condensed', sans-serif;
+            transition: opacity 0.1s, transform 0.1s;
+        }
+        .btn-main:active { transform: scale(0.98); opacity: 0.85; }
+        .btn-main:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-main.done { background: var(--success); }
+        .upload-btn { 
+            background: var(--accent); color: #fff; padding: 12px; width: 100%; 
+            border: none; font-weight: 700; border-radius: 4px; margin-bottom: 8px; 
+            cursor: pointer; letter-spacing: 1px; font-family: 'Barlow Condensed', sans-serif;
+        }
+        .btn-secondary { 
+            background: #222; color: #ccc; padding: 10px 16px; border: 1px solid #333; 
+            border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 700;
+            font-family: 'Barlow Condensed', sans-serif; letter-spacing: 1px;
+        }
+        .btn-danger { background: #1a0000; color: var(--danger); border-color: #3a0000; }
+
+        /* ─── CANVAS ─── */
+        .canvas-container { width: 100%; background: #000; margin-bottom: 10px; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
         canvas.shot-canvas { width: 100%; height: auto; display: block; }
-        
-        /* 評価セクションのスタイリング */
-        .eval-group { margin-bottom: 15px; border-top: 1px solid #333; padding-top: 10px; }
-        .eval-group-title { font-size: 0.75rem; color: var(--primary); font-weight: bold; margin-bottom: 8px; display: block; }
-        .score-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 0.85rem; }
-        .grade-badge { width: 22px; height: 22px; display: inline-flex; justify-content: center; align-items: center; border-radius: 4px; font-weight: 900; margin-left: 8px; font-size: 0.7rem; }
+
+        /* ─── EVAL / SCORES ─── */
+        .eval-group { margin-bottom: 14px; border-top: 1px solid #222; padding-top: 10px; }
+        .eval-group-title { font-size: 0.7rem; color: var(--primary); font-weight: 700; margin-bottom: 8px; display: block; letter-spacing: 1px; font-family: 'Share Tech Mono', monospace; }
+        .score-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 0.85rem; border-bottom: 1px solid #1a1a1a; }
+        .grade-badge { 
+            width: 22px; height: 22px; display: inline-flex; justify-content: center; 
+            align-items: center; border-radius: 3px; font-weight: 900; margin-left: 8px; 
+            font-size: 0.7rem; font-family: 'Share Tech Mono', monospace;
+        }
         .grade-A { background: var(--success); color: #000; }
         .grade-B { background: var(--primary); color: #000; }
         .grade-C { background: #ff9500; color: #000; }
         .grade-D { background: var(--danger); color: #fff; }
-        .val-main { font-family: monospace; font-weight: bold; }
+        .val-main { font-family: 'Share Tech Mono', monospace; font-weight: bold; }
+
+        /* ─── SHOT TIMING GRAPH ─── */
+        .timing-graph-wrap { background: #000; border-radius: 4px; padding: 10px; margin: 10px 0; border: 1px solid #222; }
+        #timingCanvas { width: 100%; height: 120px; display: block; }
+
+        /* ─── HISTORY TAB ─── */
+        .history-empty { text-align: center; color: var(--text-dim); padding: 40px 20px; font-size: 0.8rem; letter-spacing: 1px; }
+        .history-card { 
+            background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; 
+            padding: 12px; margin-bottom: 10px; cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .history-card:hover { border-color: #444; }
+        .history-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .history-card-id { font-size: 0.85rem; font-weight: 900; color: var(--primary); font-family: 'Share Tech Mono', monospace; }
+        .history-card-time { font-size: 0.65rem; color: var(--text-dim); }
+        .history-grades { display: flex; gap: 6px; }
+        .history-grade-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .history-grade-label { font-size: 0.55rem; color: var(--text-dim); letter-spacing: 0.5px; }
+        .history-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+        /* ─── COMPARE ─── */
+        .compare-select { 
+            display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;
+        }
+        .compare-item { 
+            padding: 6px 12px; background: #1a1a1a; border: 1px solid #333; 
+            border-radius: 4px; font-size: 0.7rem; cursor: pointer; font-family: 'Share Tech Mono', monospace;
+            transition: all 0.15s;
+        }
+        .compare-item.selected { border-color: var(--primary); color: var(--primary); background: #1a1500; }
+        .compare-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .compare-table th { color: var(--text-dim); font-size: 0.6rem; letter-spacing: 1px; padding: 6px 4px; border-bottom: 1px solid #333; text-align: left; }
+        .compare-table td { padding: 7px 4px; border-bottom: 1px solid #1a1a1a; font-family: 'Share Tech Mono', monospace; }
+        .compare-table td:first-child { color: #888; font-family: 'Barlow Condensed', sans-serif; font-size: 0.75rem; }
+        .compare-best { color: var(--success) !important; }
+
+        /* ─── MIC STATUS ─── */
+        .mic-status { 
+            display: inline-flex; align-items: center; gap: 6px; 
+            font-size: 0.65rem; color: var(--text-dim); margin-bottom: 8px;
+        }
+        .mic-dot { width: 7px; height: 7px; border-radius: 50%; background: #444; }
+        .mic-dot.active { background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
     </style>
 </head>
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver46 - Tactical Analytics</h1>
+    <h1 class="app-title-main">MaLI ver47</h1>
+    <div class="app-subtitle">TACTICAL ANALYTICS SYSTEM</div>
 </header>
+
+<div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('session')">SESSION</button>
+    <button class="tab-btn" onclick="switchTab('history')">HISTORY</button>
+    <button class="tab-btn" onclick="switchTab('compare')">COMPARE</button>
+</div>
+
+<!-- ===== SESSION TAB ===== -->
+<div id="tab-session" class="tab-pane active">
 
 <div class="card">
     <h2>1. Scenario Config</h2>
     <div class="config-grid">
         <div style="grid-column: span 2;"><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
         <div style="grid-column: span 2;">
-            <label>射距離 (m) ※複数なら / で区切る (例: 10 / 25)</label>
+            <label>射距離 (m) ※複数なら / で区切る</label>
             <input type="text" id="cfg-range" value="10" oninput="autoConfigTargets(this.value)">
         </div>
         <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5"></div>
-        <div><label>目標命中数 (Goal Hits)</label><input type="number" id="cfg-target-hits" value="5"></div>
+        <div><label>目標命中数 (Goal)</label><input type="number" id="cfg-target-hits" value="5"></div>
         <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="90"></div>
         <div><label>目標散布界 (cm)</label><input type="number" id="cfg-target-grouping" value="15.0"></div>
         <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
@@ -66,12 +215,17 @@
 <div class="card">
     <h2>2. Timer</h2>
     <div class="sens-area">
-        <label>閾値: <span id="sens-val">0.85</span></label>
-        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.85" oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
+        <div class="mic-status"><span class="mic-dot" id="mic-dot"></span><span id="mic-status-text">MIC: INACTIVE</span></div>
+        <label>検出閾値: <span id="sens-val">0.85</span></label>
+        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.85" 
+               oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
         <canvas id="viz"></canvas>
     </div>
     <div id="timer-val">0.00</div>
-    <button id="startBtn" class="btn-main">START</button>
+    <div class="shot-log" id="shot-log"></div>
+    <div style="margin-top: 10px;">
+        <button id="startBtn" class="btn-main">START</button>
+    </div>
 </div>
 
 <div id="acquisition-area" style="display:none;" class="card">
@@ -83,327 +237,681 @@
 
 <div id="assessment-area" style="display:none;"></div>
 
+</div><!-- /tab-session -->
+
+<!-- ===== HISTORY TAB ===== -->
+<div id="tab-history" class="tab-pane">
+    <div class="card">
+        <h2>Session History</h2>
+        <div id="history-list"></div>
+    </div>
+</div>
+
+<!-- ===== COMPARE TAB ===== -->
+<div id="tab-compare" class="tab-pane">
+    <div class="card">
+        <h2>Compare Sessions</h2>
+        <div id="compare-select-area" class="compare-select"></div>
+        <div id="compare-table-area"></div>
+    </div>
+</div>
+
 <script>
-    let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
-    let cumulativeHits = 0, individualGroupings = [], finalStats = {};
-    const vizCanvas = document.getElementById('viz'), vizCtx = vizCanvas.getContext('2d');
+/* ═══════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════ */
+let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
+let cumulativeHits = 0, individualGroupings = [], finalStats = {};
+let animFrameId = null;
+let lastShotTime = -999;
 
-    function autoConfigTargets(val) {
-        const ranges = val.split('/').map(r => r.trim()).filter(r => r !== "");
-        if (ranges.length > 0) {
-            const maxRange = Math.max(...ranges.map(Number));
-            document.getElementById('cfg-target-grouping').value = (maxRange * 1.2).toFixed(1);
-        }
+// 高精度検出用バッファ
+const DETECT_BUFFER = 4;
+let energyHistory = new Float32Array(DETECT_BUFFER);
+let energyIdx = 0;
+
+const vizCanvas = document.getElementById('viz');
+const vizCtx = vizCanvas.getContext('2d');
+vizCanvas.width = vizCanvas.offsetWidth || 300;
+vizCanvas.height = 50;
+
+/* ═══════════════════════════════════════════
+   TABS
+═══════════════════════════════════════════ */
+function switchTab(name) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    event.target.classList.add('active');
+    if (name === 'history') renderHistory();
+    if (name === 'compare') renderCompareSelect();
+}
+
+/* ═══════════════════════════════════════════
+   AUTO CONFIG
+═══════════════════════════════════════════ */
+function autoConfigTargets(val) {
+    const ranges = val.split('/').map(r => r.trim()).filter(Boolean);
+    if (ranges.length > 0) {
+        const maxRange = Math.max(...ranges.map(Number));
+        document.getElementById('cfg-target-grouping').value = (maxRange * 1.2).toFixed(1);
     }
+}
 
-    async function initAudio() {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const source = audioCtx.createMediaStreamSource(stream);
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256; source.connect(analyser);
-        dataArray = new Uint8Array(analyser.frequencyBinCount); renderViz();
+/* ═══════════════════════════════════════════
+   AUDIO / DETECTION
+═══════════════════════════════════════════ */
+async function initAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512; // 高精度
+    analyser.smoothingTimeConstant = 0.1; // レスポンス重視
+    source.connect(analyser);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    energyHistory.fill(0);
+    document.getElementById('mic-dot').classList.add('active');
+    document.getElementById('mic-status-text').textContent = 'MIC: ACTIVE';
+    if (!animFrameId) renderViz();
+}
+
+function getRMSEnergy() {
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sum += v * v;
     }
+    return Math.sqrt(sum / dataArray.length);
+}
 
-    function renderViz() {
-        requestAnimationFrame(renderViz); if (!analyser) return; 
-        analyser.getByteTimeDomainData(dataArray);
-        vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
-        vizCtx.lineWidth = 2; vizCtx.strokeStyle = "#ffcc00"; vizCtx.beginPath();
-        let slice = vizCanvas.width / dataArray.length, x = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-            let v = dataArray[i] / 128.0, y = v * vizCanvas.height / 2;
-            if (i === 0) vizCtx.moveTo(x, y); else vizCtx.lineTo(x, y); x += slice;
-        }
-        vizCtx.stroke();
-        if (isRunning) checkShot();
+function renderViz() {
+    animFrameId = requestAnimationFrame(renderViz);
+    if (!analyser) return;
+    analyser.getByteTimeDomainData(dataArray);
+    vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
+    vizCtx.lineWidth = 1.5; vizCtx.strokeStyle = "#ffcc00"; vizCtx.beginPath();
+    const slice = vizCanvas.width / dataArray.length;
+    let x = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = v * vizCanvas.height / 2;
+        i === 0 ? vizCtx.moveTo(x, y) : vizCtx.lineTo(x, y);
+        x += slice;
     }
+    vizCtx.stroke();
 
-    function checkShot() {
-        const now = (performance.now() - startTime) / 1000;
-        if (now < 0.2) return; 
-        let max = 0; for (let i = 0; i < dataArray.length; i++) { let v = Math.abs(dataArray[i] - 128) / 128; if (v > max) max = v; }
-        const th = parseFloat(document.getElementById('mic-sens').value);
-        const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
-        let deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? 1.2 : 0.08; 
+    // 閾値ライン
+    const th = parseFloat(document.getElementById('mic-sens').value);
+    vizCtx.strokeStyle = 'rgba(255,59,48,0.4)';
+    vizCtx.lineWidth = 1;
+    vizCtx.setLineDash([4, 4]);
+    vizCtx.beginPath();
+    const thY = vizCanvas.height / 2 - th * vizCanvas.height / 2;
+    vizCtx.moveTo(0, thY); vizCtx.lineTo(vizCanvas.width, thY);
+    const thY2 = vizCanvas.height / 2 + th * vizCanvas.height / 2;
+    vizCtx.moveTo(0, thY2); vizCtx.lineTo(vizCanvas.width, thY2);
+    vizCtx.stroke();
+    vizCtx.setLineDash([]);
 
-        if (max > th && (shotTimes.length === 0 || (now - shotTimes[shotTimes.length-1]) > deadTime)) {
-            shotTimes.push(now);
-            document.getElementById('timer-val').innerText = now.toFixed(2);
-            if (shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
-        }
+    if (isRunning) checkShot();
+}
+
+function checkShot() {
+    const now = (performance.now() - startTime) / 1000;
+    if (now < 0.15) return;
+    
+    const rms = getRMSEnergy();
+    energyHistory[energyIdx % DETECT_BUFFER] = rms;
+    energyIdx++;
+
+    // 動的閾値: 直前の平均に対する急上昇を検出
+    const th = parseFloat(document.getElementById('mic-sens').value);
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
+    const deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? 1.0 : 0.07;
+
+    if (rms > th && (now - lastShotTime) > deadTime) {
+        lastShotTime = now;
+        shotTimes.push(now);
+        updateShotLog(now, reloadAt);
+        const tv = document.getElementById('timer-val');
+        tv.innerText = now.toFixed(2);
+        tv.classList.add('shot-flash');
+        setTimeout(() => tv.classList.remove('shot-flash'), 120);
+        if (shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
     }
+}
 
-    function finishEngagement() {
-        isRunning = false; document.getElementById('startBtn').innerText = "DONE";
-        document.getElementById('acquisition-area').style.display = 'block';
-    }
+function updateShotLog(t, reloadAt) {
+    const log = document.getElementById('shot-log');
+    const badge = document.createElement('span');
+    const isReload = reloadAt > 0 && shotTimes.length === reloadAt + 1;
+    badge.className = 'shot-badge' + (isReload ? ' reload-badge' : '');
+    const idx = shotTimes.length;
+    const prev = shotTimes.length > 1 ? shotTimes[shotTimes.length - 2] : null;
+    const split = prev !== null ? (t - prev).toFixed(2) : null;
+    badge.textContent = `#${idx} ${t.toFixed(2)}s` + (split ? ` (+${split})` : '');
+    log.appendChild(badge);
+}
 
-    async function processMultipleImages(input) {
-        const files = Array.from(input.files);
-        const container = document.getElementById('canvas-list');
-        container.innerHTML = ""; cumulativeHits = 0; individualGroupings = [];
-        for (let i = 0; i < files.length; i++) {
-            const wrapper = document.createElement('div');
-            wrapper.className = "canvas-container";
-            const cvs = document.createElement('canvas'); cvs.className = "shot-canvas";
-            wrapper.appendChild(cvs); container.appendChild(wrapper);
-            await new Promise(resolve => {
-                const img = new Image();
-                img.onload = () => {
-                    const ctx = cvs.getContext('2d');
-                    const MAX_W = 1000;
-                    let drawW = img.width, drawH = img.height;
-                    if (drawW > MAX_W) { drawH *= MAX_W/drawW; drawW = MAX_W; }
-                    cvs.width = drawW; cvs.height = drawH;
-                    ctx.drawImage(img, 0, 0, drawW, drawH);
-                    const res = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
-                    cumulativeHits += res.count; individualGroupings.push(res.grouping);
-                    resolve();
-                };
-                img.src = URL.createObjectURL(files[i]);
-            });
-        }
-        generateAssessment();
-    }
+function finishEngagement() {
+    isRunning = false;
+    const btn = document.getElementById('startBtn');
+    btn.innerText = "DONE";
+    btn.classList.add('done');
+    document.getElementById('acquisition-area').style.display = 'block';
+}
 
-    function analyzeBlueMarks(ctx, w, h, targetNum) {
-        const imageData = ctx.getImageData(0, 0, w, h);
-        const data = imageData.data;
-        let pts = [];
-        for (let i = 0; i < data.length; i += 16) {
-            const r = data[i], g = data[i+1], b = data[i+2];
-            if (b > 110 && b > r * 1.5 && b > g * 1.2) pts.push({ x: (i / 4) % w, y: Math.floor((i / 4) / w) });
-        }
-        let clusters = [];
-        pts.forEach(p => {
-            let found = false;
-            for (let c of clusters) {
-                if (Math.sqrt((c.x - p.x)**2 + (c.y - p.y)**2) < 20) {
-                    c.x = (c.x + p.x) / 2; c.y = (c.y + p.y) / 2; c.size++; found = true; break;
-                }
-            }
-            if (!found) clusters.push({ x: p.x, y: p.y, size: 1 });
-        });
-        const avgSize = 90;
-        let finalShots = [];
-        clusters.forEach(c => {
-            if (c.size > 8) {
-                let count = Math.max(1, Math.round(c.size / avgSize));
-                for(let k=0; k<count; k++) finalShots.push({ x: c.x + (k*3), y: c.y + (k*3) });
-            }
-        });
-        ctx.strokeStyle = '#007aff'; ctx.lineWidth = 5;
-        finalShots.forEach(s => { ctx.beginPath(); ctx.arc(s.x, s.y, 25, 0, Math.PI * 2); ctx.stroke(); });
-        const cmPerPx = parseFloat(document.getElementById('cfg-target-height').value) / h;
-        let maxD = 0;
-        for (let i = 0; i < finalShots.length; i++) 
-            for (let j = i + 1; j < finalShots.length; j++) 
-                maxD = Math.max(maxD, Math.sqrt((finalShots[i].x-finalShots[j].x)**2 + (finalShots[i].y-finalShots[j].y)**2));
-        return { count: finalShots.length, grouping: maxD * cmPerPx };
-    }
-
-    function getGrade(actual, goal, isLowerBetter = true) {
-        if (actual === 0 && !isLowerBetter) return 'D';
-        const ratio = actual / goal;
-        if (isLowerBetter) {
-            if (ratio <= 0.85) return 'A';
-            if (ratio <= 1.15) return 'B';
-            if (ratio <= 1.40) return 'C';
-            return 'D';
-        } else {
-            if (ratio >= 1.10) return 'A';
-            if (ratio >= 0.90) return 'B';
-            if (ratio >= 0.70) return 'C';
-            return 'D';
-        }
-    }
-
-    function generateAssessment() {
-        const area = document.getElementById('assessment-area');
-        area.innerHTML = ""; area.style.display = 'block';
-        
-        const cfg = {
-            totalShots: parseInt(document.getElementById('cfg-total-shots').value),
-            targetHits: parseInt(document.getElementById('cfg-target-hits').value),
-            group: parseFloat(document.getElementById('cfg-target-grouping').value),
-            first: parseFloat(document.getElementById('cfg-target-first').value),
-            split: parseFloat(document.getElementById('cfg-target-split').value),
-            reload: parseFloat(document.getElementById('cfg-target-reload').value),
-            reloadAt: parseInt(document.getElementById('cfg-reload-at').value)
-        };
-
-        const firstShot = shotTimes[0] || 0;
-        let splits = [];
-        for(let i=1; i<shotTimes.length; i++) {
-            if(cfg.reloadAt > 0 && i === cfg.reloadAt) continue; 
-            splits.push(shotTimes[i] - shotTimes[i-1]);
-        }
-        const avgSplit = splits.length > 0 ? splits.reduce((a,b)=>a+b,0)/splits.length : 0;
-        const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt]) ? (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt-1]) : 0;
-        const totalTime = shotTimes[shotTimes.length-1] || 0;
-        const maxGrp = Math.max(...individualGroupings, 0);
-
-        finalStats = {
-            accuracy: { 
-                hits: { val: cumulativeHits, goal: cfg.targetHits, grade: getGrade(cumulativeHits, cfg.targetHits, false) },
-                group: { val: maxGrp, goal: cfg.group, grade: getGrade(maxGrp, cfg.group, true) }
-            },
-            speed: { 
-                first: { val: firstShot, goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) }
-            },
-            control: { 
-                split: { val: avgSplit, goal: cfg.split, grade: getGrade(avgSplit, cfg.split, true) },
-                reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' }
-            },
-            exposure: { 
-                total: { val: totalTime, goal: (cfg.first + cfg.split*(cfg.totalShots-1) + (cfg.reloadAt>0?cfg.reload:0)), grade: getGrade(totalTime, (cfg.first + cfg.split*(cfg.totalShots-1) + (cfg.reloadAt>0?cfg.reload:0)), true) }
-            }
-        };
-
-        area.innerHTML = `
-            <div class="card">
-                <h2>4. Comprehensive Analysis</h2>
-                <div style="display:flex; justify-content:center; background:#000; padding:10px; border-radius:8px;">
-                    <canvas id="radarCanvas" width="400" height="400" style="width:280px; height:280px;"></canvas>
-                </div>
-                
-                <div class="eval-group">
-                    <span class="eval-group-title">【精度 / Accuracy】</span>
-                    ${createDetailRow("目標命中数", finalStats.accuracy.hits, "発")}
-                    ${createDetailRow("最大散布界", finalStats.accuracy.group, "cm")}
-                </div>
-                <div class="eval-group">
-                    <span class="eval-group-title">【速度 / Speed】</span>
-                    ${createDetailRow("初弾反応速度", finalStats.speed.first, "s")}
-                </div>
-                <div class="eval-group">
-                    <span class="eval-group-title">【制御 / Control】</span>
-                    ${createDetailRow("平均連射間隔", finalStats.control.split, "s")}
-                    ${cfg.reloadAt > 0 ? createDetailRow("リロード所要時間", finalStats.control.reload, "s") : ""}
-                </div>
-                <div class="eval-group">
-                    <span class="eval-group-title">【暴露 / Exposure】</span>
-                    ${createDetailRow("総暴露時間", finalStats.exposure.total, "s")}
-                </div>
-
-                <button onclick="exportFullCSV()" style="width:100%; margin-top:20px; padding:18px; background:var(--primary); color:#000; font-weight:bold; border:none; border-radius:4px; font-size:1rem;">CSV詳細レポート出力</button>
-            </div>
-        `;
-        setTimeout(drawRadar, 100);
-    }
-
-    function createDetailRow(lbl, stat, unit) {
-        return `<div class="score-row"><span>${lbl}</span><div style="display:flex; align-items:center;"><span class="val-main">${stat.val.toFixed(2)}${unit}</span><span class="grade-badge grade-${stat.grade}">${stat.grade}</span></div></div>`;
-    }
-
-    function drawRadar() {
-        const cvs = document.getElementById('radarCanvas'); if(!cvs) return;
-        const ctx = cvs.getContext('2d'), r = 130, cx = 200, cy = 200;
-        ctx.clearRect(0,0,400,400);
-        
-        // 背景の軸とランク表示
-        const ranks = ["D", "C", "B", "A"];
-        ctx.textAlign = "center"; ctx.font = "10px monospace";
-        for(let j=1; j<=4; j++) {
-            ctx.beginPath(); ctx.strokeStyle = (j===3) ? "rgba(255,204,0,0.8)" : "#333";
-            ctx.lineWidth = (j===3) ? 2 : 1;
-            for(let i=0; i<4; i++) {
-                const a = (Math.PI/2)*i - Math.PI/2;
-                ctx.lineTo(cx+(r*j/4)*Math.cos(a), cy+(r*j/4)*Math.sin(a));
-            }
-            ctx.closePath(); ctx.stroke();
-            ctx.fillStyle = "#666"; ctx.fillText(ranks[j-1], cx, cy - (r*j/4) + 10);
-        }
-
-        const labels = ["精度", "速度", "制御", "暴露"];
-        const grades = [
-            finalStats.accuracy.hits.grade, 
-            finalStats.speed.first.grade, 
-            finalStats.control.split.grade, 
-            finalStats.exposure.total.grade
-        ];
-        const scores = grades.map(mapToRadar);
-
-        // レーダーチャート描画
-        ctx.fillStyle = "rgba(255, 204, 0, 0.4)"; ctx.strokeStyle = "var(--primary)"; ctx.lineWidth = 3;
-        ctx.beginPath();
-        scores.forEach((s, i) => {
-            const a = (Math.PI/2)*i - Math.PI/2;
-            ctx.lineTo(cx + r * s * Math.cos(a), cy + r * s * Math.sin(a));
-        });
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-
-        // カテゴリラベルとグレードの描画
-        scores.forEach((s, i) => {
-            const a = (Math.PI/2)*i - Math.PI/2;
-            const x = cx + (r+35)*Math.cos(a);
-            const y = cy + (r+35)*Math.sin(a);
-            
-            ctx.fillStyle = "#fff"; ctx.font = "bold 14px sans-serif";
-            ctx.fillText(labels[i], x, y);
-            
-            // レーダー上の各点にグレードを表示
-            const gx = cx + r * s * Math.cos(a);
-            const gy = cy + r * s * Math.sin(a);
-            ctx.fillStyle = "#000";
-            const grade = grades[i];
-            const badgeColor = grade === 'A' ? "#32d74b" : (grade === 'B' ? "#ffcc00" : (grade === 'C' ? "#ff9500" : "#ff3b30"));
-            
-            ctx.beginPath();
-            ctx.fillStyle = badgeColor;
-            ctx.arc(gx, gy, 10, 0, Math.PI*2);
-            ctx.fill();
-            
-            ctx.fillStyle = "#000";
-            ctx.font = "bold 12px monospace";
-            ctx.fillText(grade, gx, gy + 4);
+/* ═══════════════════════════════════════════
+   IMAGE ANALYSIS (最適化版)
+═══════════════════════════════════════════ */
+async function processMultipleImages(input) {
+    const files = Array.from(input.files);
+    const container = document.getElementById('canvas-list');
+    container.innerHTML = "";
+    cumulativeHits = 0; individualGroupings = [];
+    for (let i = 0; i < files.length; i++) {
+        const wrapper = document.createElement('div');
+        wrapper.className = "canvas-container";
+        const cvs = document.createElement('canvas'); cvs.className = "shot-canvas";
+        wrapper.appendChild(cvs); container.appendChild(wrapper);
+        await new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => {
+                const ctx = cvs.getContext('2d', { willReadFrequently: true });
+                const MAX_W = 1000;
+                let drawW = img.width, drawH = img.height;
+                if (drawW > MAX_W) { drawH = Math.round(drawH * MAX_W / drawW); drawW = MAX_W; }
+                cvs.width = drawW; cvs.height = drawH;
+                ctx.drawImage(img, 0, 0, drawW, drawH);
+                const res = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
+                cumulativeHits += res.count; individualGroupings.push(res.grouping);
+                resolve();
+            };
+            img.src = URL.createObjectURL(files[i]);
         });
     }
+    generateAssessment();
+}
 
-    function mapToRadar(grade) {
-        return { 'A': 1.0, 'B': 0.75, 'C': 0.5, 'D': 0.25 }[grade] || 0.25;
+function analyzeBlueMarks(ctx, w, h, targetNum) {
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    const len = data.length;
+    let pts = [];
+    // サンプリング間隔を動的に調整（大画像は粗く、小画像は細かく）
+    const stride = Math.max(4, Math.floor(w * h / 40000)) * 4;
+    for (let i = 0; i < len; i += stride) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        if (b > 110 && b > r * 1.5 && b > g * 1.2) {
+            pts.push({ x: (i / 4) % w, y: Math.floor((i / 4) / w) });
+        }
     }
-
-    function exportFullCSV() {
-        const shooter = document.getElementById('cfg-shooter').value;
-        const rangeArr = document.getElementById('cfg-range').value.split('/').map(s => s.trim());
-        const now = new Date().toLocaleString('ja-JP');
-
-        let headers = ["Timestamp", "ShooterID", "Total_Shots", "Goal_Hits", "Actual_Hits", "Hits_Grade", "Max_Grouping_cm", "Grouping_Grade", "FirstShot_s", "FirstShot_Grade", "AvgSplit_s", "Split_Grade", "Reload_s", "Reload_Grade", "TotalExposure_s", "Exposure_Grade"];
-        rangeArr.forEach((r, i) => { headers.push(`Range_T${i+1}_m`, `Grouping_T${i+1}_cm`); });
-        for(let i=1; i<=shotTimes.length; i++) headers.push(`Shot${i}_Time`);
-
-        let row = [
-            now, shooter, 
-            document.getElementById('cfg-total-shots').value, document.getElementById('cfg-target-hits').value,
-            finalStats.accuracy.hits.val, finalStats.accuracy.hits.grade,
-            finalStats.accuracy.group.val.toFixed(2), finalStats.accuracy.group.grade,
-            finalStats.speed.first.val.toFixed(2), finalStats.speed.first.grade,
-            finalStats.control.split.val.toFixed(2), finalStats.control.split.grade,
-            finalStats.control.reload.val.toFixed(2), finalStats.control.reload.grade,
-            finalStats.exposure.total.val.toFixed(2), finalStats.exposure.total.grade
-        ];
-        rangeArr.forEach((r, i) => { row.push(r, (individualGroupings[i]||0).toFixed(2)); });
-        shotTimes.forEach(t => row.push(t.toFixed(2)));
-
-        let csvContent = "\uFEFF" + headers.join(",") + "\n" + row.join(",");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `MaLI_Report_${shooter}.csv`;
-        link.click();
+    // クラスタリング
+    let clusters = [];
+    for (const p of pts) {
+        let found = false;
+        for (const c of clusters) {
+            const dx = c.x - p.x, dy = c.y - p.y;
+            if (dx*dx + dy*dy < 400) { // 20px²
+                c.x = (c.x * c.size + p.x) / (c.size + 1);
+                c.y = (c.y * c.size + p.y) / (c.size + 1);
+                c.size++; found = true; break;
+            }
+        }
+        if (!found) clusters.push({ x: p.x, y: p.y, size: 1 });
     }
+    const avgSize = 90;
+    let finalShots = [];
+    clusters.forEach(c => {
+        if (c.size > 8) {
+            const count = Math.max(1, Math.round(c.size / avgSize));
+            for (let k = 0; k < count; k++) finalShots.push({ x: c.x + k*3, y: c.y + k*3 });
+        }
+    });
+    // 描画
+    ctx.strokeStyle = '#007aff'; ctx.lineWidth = 5;
+    finalShots.forEach(s => { ctx.beginPath(); ctx.arc(s.x, s.y, 25, 0, Math.PI * 2); ctx.stroke(); });
+    // ラベル
+    ctx.fillStyle = 'rgba(0,122,255,0.85)'; ctx.font = 'bold 18px monospace';
+    ctx.fillText(`T${targetNum}: ${finalShots.length} hits`, 10, 24);
 
-    document.getElementById('startBtn').onclick = async () => {
-        await initAudio(); shotTimes = []; document.getElementById('timer-val').innerText = "STANDBY";
-        setTimeout(() => {
-            const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
-            startTime = performance.now(); isRunning = true;
-            document.getElementById('timer-val').innerText = "0.00";
-        }, 2000 + Math.random() * 2000);
+    const cmPerPx = parseFloat(document.getElementById('cfg-target-height').value) / h;
+    let maxD = 0;
+    for (let i = 0; i < finalShots.length; i++)
+        for (let j = i + 1; j < finalShots.length; j++) {
+            const dx = finalShots[i].x - finalShots[j].x;
+            const dy = finalShots[i].y - finalShots[j].y;
+            maxD = Math.max(maxD, Math.sqrt(dx*dx + dy*dy));
+        }
+    return { count: finalShots.length, grouping: maxD * cmPerPx };
+}
+
+/* ═══════════════════════════════════════════
+   GRADING
+═══════════════════════════════════════════ */
+function getGrade(actual, goal, isLowerBetter = true) {
+    if (actual === 0 && !isLowerBetter) return 'D';
+    const ratio = actual / goal;
+    if (isLowerBetter) {
+        if (ratio <= 0.85) return 'A';
+        if (ratio <= 1.15) return 'B';
+        if (ratio <= 1.40) return 'C';
+        return 'D';
+    } else {
+        if (ratio >= 1.10) return 'A';
+        if (ratio >= 0.90) return 'B';
+        if (ratio >= 0.70) return 'C';
+        return 'D';
+    }
+}
+
+/* ═══════════════════════════════════════════
+   ASSESSMENT
+═══════════════════════════════════════════ */
+function generateAssessment() {
+    const area = document.getElementById('assessment-area');
+    area.innerHTML = ""; area.style.display = 'block';
+    const cfg = {
+        totalShots: parseInt(document.getElementById('cfg-total-shots').value),
+        targetHits: parseInt(document.getElementById('cfg-target-hits').value),
+        group: parseFloat(document.getElementById('cfg-target-grouping').value),
+        first: parseFloat(document.getElementById('cfg-target-first').value),
+        split: parseFloat(document.getElementById('cfg-target-split').value),
+        reload: parseFloat(document.getElementById('cfg-target-reload').value),
+        reloadAt: parseInt(document.getElementById('cfg-reload-at').value)
     };
+    const firstShot = shotTimes[0] || 0;
+    let splits = [];
+    for (let i = 1; i < shotTimes.length; i++) {
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt) continue;
+        splits.push(shotTimes[i] - shotTimes[i-1]);
+    }
+    const avgSplit = splits.length > 0 ? splits.reduce((a,b)=>a+b,0)/splits.length : 0;
+    const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt]) ? (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt-1]) : 0;
+    const totalTime = shotTimes[shotTimes.length-1] || 0;
+    const maxGrp = Math.max(...individualGroupings, 0);
+    const expectedTotal = cfg.first + cfg.split*(cfg.totalShots-1) + (cfg.reloadAt>0 ? cfg.reload : 0);
+
+    finalStats = {
+        accuracy: {
+            hits:  { val: cumulativeHits, goal: cfg.targetHits, grade: getGrade(cumulativeHits, cfg.targetHits, false) },
+            group: { val: maxGrp,         goal: cfg.group,      grade: getGrade(maxGrp, cfg.group, true) }
+        },
+        speed:   { first:  { val: firstShot, goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) } },
+        control: {
+            split:  { val: avgSplit,   goal: cfg.split,  grade: getGrade(avgSplit, cfg.split, true) },
+            reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' }
+        },
+        exposure: { total: { val: totalTime, goal: expectedTotal, grade: getGrade(totalTime, expectedTotal, true) } }
+    };
+
+    const createDetailRow = (lbl, stat, unit) =>
+        `<div class="score-row"><span>${lbl}</span><div style="display:flex;align-items:center;">
+        <span class="val-main">${stat.val.toFixed(2)}${unit}</span>
+        <span class="grade-badge grade-${stat.grade}">${stat.grade}</span></div></div>`;
+
+    area.innerHTML = `
+        <div class="card">
+            <h2>4. Comprehensive Analysis</h2>
+
+            <div style="display:flex; justify-content:center; background:#000; padding:10px; border-radius:6px; margin-bottom:12px;">
+                <canvas id="radarCanvas" width="400" height="400" style="width:260px;height:260px;"></canvas>
+            </div>
+
+            <div class="eval-group">
+                <span class="eval-group-title">【精度 / Accuracy】</span>
+                ${createDetailRow("目標命中数", finalStats.accuracy.hits, "発")}
+                ${createDetailRow("最大散布界", finalStats.accuracy.group, "cm")}
+            </div>
+            <div class="eval-group">
+                <span class="eval-group-title">【速度 / Speed】</span>
+                ${createDetailRow("初弾反応速度", finalStats.speed.first, "s")}
+            </div>
+            <div class="eval-group">
+                <span class="eval-group-title">【制御 / Control】</span>
+                ${createDetailRow("平均連射間隔", finalStats.control.split, "s")}
+                ${cfg.reloadAt > 0 ? createDetailRow("リロード所要時間", finalStats.control.reload, "s") : ""}
+            </div>
+            <div class="eval-group">
+                <span class="eval-group-title">【暴露 / Exposure】</span>
+                ${createDetailRow("総暴露時間", finalStats.exposure.total, "s")}
+            </div>
+
+            <h2 style="margin-top:16px;">Shot Timing Graph</h2>
+            <div class="timing-graph-wrap">
+                <canvas id="timingCanvas"></canvas>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:16px;">
+                <button onclick="saveSession()" class="btn-secondary">💾 セッション保存</button>
+                <button onclick="exportFullCSV()" class="btn-secondary">📊 CSV出力</button>
+            </div>
+        </div>
+    `;
+    setTimeout(() => { drawRadar(); drawTimingGraph(); }, 80);
+}
+
+/* ═══════════════════════════════════════════
+   RADAR CHART (強化版)
+═══════════════════════════════════════════ */
+function drawRadar() {
+    const cvs = document.getElementById('radarCanvas'); if (!cvs) return;
+    const ctx = cvs.getContext('2d'), r = 130, cx = 200, cy = 200;
+    ctx.clearRect(0, 0, 400, 400);
+
+    const ranks = ["D","C","B","A"];
+    ctx.textAlign = "center";
+    for (let j = 1; j <= 4; j++) {
+        ctx.beginPath();
+        ctx.strokeStyle = j === 3 ? "rgba(255,204,0,0.5)" : "#1e1e1e";
+        ctx.lineWidth = j === 3 ? 1.5 : 1;
+        for (let i = 0; i < 4; i++) {
+            const a = (Math.PI/2)*i - Math.PI/2;
+            ctx.lineTo(cx + (r*j/4)*Math.cos(a), cy + (r*j/4)*Math.sin(a));
+        }
+        ctx.closePath(); ctx.stroke();
+        ctx.fillStyle = j === 3 ? "rgba(255,204,0,0.5)" : "#333";
+        ctx.font = "9px 'Share Tech Mono', monospace";
+        ctx.fillText(ranks[j-1], cx + 5, cy - (r*j/4) + 9);
+    }
+    // 軸線
+    for (let i = 0; i < 4; i++) {
+        const a = (Math.PI/2)*i - Math.PI/2;
+        ctx.beginPath(); ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+        ctx.moveTo(cx, cy); ctx.lineTo(cx + r*Math.cos(a), cy + r*Math.sin(a)); ctx.stroke();
+    }
+
+    const labels = ["精度","速度","制御","暴露"];
+    const gradeKeys = [
+        finalStats.accuracy.hits.grade, finalStats.speed.first.grade,
+        finalStats.control.split.grade, finalStats.exposure.total.grade
+    ];
+    const scores = gradeKeys.map(g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g] || 0.25));
+
+    // 塗りつぶし
+    ctx.fillStyle = "rgba(255,204,0,0.15)"; ctx.strokeStyle = "rgba(255,204,0,0.8)"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    scores.forEach((s, i) => {
+        const a = (Math.PI/2)*i - Math.PI/2;
+        ctx.lineTo(cx + r*s*Math.cos(a), cy + r*s*Math.sin(a));
+    });
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // ラベル & バッジ
+    scores.forEach((s, i) => {
+        const a = (Math.PI/2)*i - Math.PI/2;
+        const lx = cx + (r+38)*Math.cos(a), ly = cy + (r+38)*Math.sin(a);
+        ctx.fillStyle = "#ccc"; ctx.font = "bold 13px 'Barlow Condensed', sans-serif";
+        ctx.fillText(labels[i], lx, ly);
+
+        const gx = cx + r*s*Math.cos(a), gy = cy + r*s*Math.sin(a);
+        const grade = gradeKeys[i];
+        const col = grade==='A'?"#32d74b":grade==='B'?"#ffcc00":grade==='C'?"#ff9500":"#ff3b30";
+        ctx.beginPath(); ctx.fillStyle = col; ctx.arc(gx, gy, 10, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#000"; ctx.font = "bold 11px 'Share Tech Mono', monospace";
+        ctx.fillText(grade, gx, gy+4);
+    });
+}
+
+/* ═══════════════════════════════════════════
+   SHOT TIMING GRAPH (新機能)
+═══════════════════════════════════════════ */
+function drawTimingGraph() {
+    const cvs = document.getElementById('timingCanvas'); if (!cvs) return;
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width = cvs.offsetWidth * dpr || 300 * dpr;
+    cvs.height = 120 * dpr;
+    cvs.style.height = '120px';
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = cvs.offsetWidth || 300, H = 120;
+    ctx.clearRect(0, 0, W, H);
+
+    if (shotTimes.length < 2) {
+        ctx.fillStyle = '#444'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('2発以上で表示', W/2, H/2); return;
+    }
+
+    const splits = [];
+    for (let i = 1; i < shotTimes.length; i++) splits.push(shotTimes[i] - shotTimes[i-1]);
+
+    const maxS = Math.max(...splits) * 1.15;
+    const pad = { l: 30, r: 10, t: 10, b: 30 };
+    const gW = W - pad.l - pad.r, gH = H - pad.t - pad.b;
+    const barW = Math.max(6, gW / splits.length - 4);
+
+    // グリッド
+    ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 1;
+    [0.25, 0.5, 0.75, 1.0].forEach(f => {
+        const y = pad.t + gH * (1 - f);
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + gW, y); ctx.stroke();
+    });
+
+    // 目標ライン
+    const targetSplit = parseFloat(document.getElementById('cfg-target-split').value);
+    const tyRatio = Math.min(targetSplit / maxS, 1);
+    const ty = pad.t + gH * (1 - tyRatio);
+    ctx.strokeStyle = 'rgba(255,204,0,0.6)'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath(); ctx.moveTo(pad.l, ty); ctx.lineTo(pad.l + gW, ty); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,204,0,0.8)'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('GOAL', pad.l + 2, ty - 3);
+
+    // バー
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
+    splits.forEach((s, i) => {
+        const ratio = s / maxS;
+        const x = pad.l + i * (gW / splits.length) + (gW / splits.length - barW) / 2;
+        const bH = gH * ratio;
+        const y = pad.t + gH - bH;
+        const isReload = reloadAt > 0 && i === reloadAt - 1;
+        const isFast = s <= targetSplit * 1.1;
+        ctx.fillStyle = isReload ? '#007aff' : (isFast ? '#32d74b' : '#ff3b30');
+        ctx.fillRect(x, y, barW, bH);
+
+        ctx.fillStyle = '#666'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`#${i+2}`, x + barW/2, H - 4);
+        ctx.fillStyle = '#888';
+        ctx.fillText(s.toFixed(2), x + barW/2, y - 3);
+    });
+
+    // Y軸ラベル
+    ctx.fillStyle = '#555'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+    ctx.fillText('0', pad.l - 3, pad.t + gH);
+    ctx.fillText(maxS.toFixed(1)+'s', pad.l - 3, pad.t + 8);
+}
+
+/* ═══════════════════════════════════════════
+   SESSION HISTORY (新機能)
+═══════════════════════════════════════════ */
+function saveSession() {
+    const sessions = getSessions();
+    const session = {
+        id: Date.now(),
+        shooter: document.getElementById('cfg-shooter').value,
+        range: document.getElementById('cfg-range').value,
+        timestamp: new Date().toLocaleString('ja-JP'),
+        shotTimes: [...shotTimes],
+        stats: JSON.parse(JSON.stringify(finalStats)),
+        groupings: [...individualGroupings],
+        hits: cumulativeHits
+    };
+    sessions.unshift(session);
+    if (sessions.length > 20) sessions.splice(20);
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    alert('セッションを保存しました ✓');
+}
+
+function getSessions() {
+    try { return JSON.parse(localStorage.getItem('mali_sessions') || '[]'); } catch { return []; }
+}
+
+function renderHistory() {
+    const sessions = getSessions();
+    const el = document.getElementById('history-list');
+    if (!sessions.length) {
+        el.innerHTML = '<div class="history-empty">NO SESSIONS SAVED<br><span style="font-size:0.65rem;">セッション完了後に「セッション保存」を押してください</span></div>';
+        return;
+    }
+    const gradeColor = g => g==='A'?'#32d74b':g==='B'?'#ffcc00':g==='C'?'#ff9500':'#ff3b30';
+    el.innerHTML = sessions.map(s => `
+        <div class="history-card">
+            <div class="history-card-header">
+                <div>
+                    <div class="history-card-id">${s.shooter}</div>
+                    <div style="font-size:0.65rem; color:#666; margin-top:2px;">${s.range}m · ${s.shotTimes.length}発 · ${s.timestamp}</div>
+                </div>
+                <div class="history-grades">
+                    ${[['ACC',s.stats.accuracy?.hits?.grade],['SPD',s.stats.speed?.first?.grade],['CTL',s.stats.control?.split?.grade],['EXP',s.stats.exposure?.total?.grade]].map(([l,g])=>`
+                    <div class="history-grade-item">
+                        <div class="grade-badge grade-${g||'D'}" style="width:24px;height:24px;">${g||'?'}</div>
+                        <div class="history-grade-label">${l}</div>
+                    </div>`).join('')}
+                </div>
+            </div>
+            <div style="font-size:0.7rem; color:#555; font-family:monospace;">
+                初弾: ${s.stats.speed?.first?.val?.toFixed(2)||'--'}s | 
+                散布: ${s.stats.accuracy?.group?.val?.toFixed(1)||'--'}cm | 
+                命中: ${s.hits}発
+            </div>
+            <div class="history-actions">
+                <button class="btn-secondary btn-danger" onclick="deleteSession(${s.id})">削除</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function deleteSession(id) {
+    if (!confirm('このセッションを削除しますか？')) return;
+    const sessions = getSessions().filter(s => s.id !== id);
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    renderHistory();
+    renderCompareSelect();
+}
+
+/* ═══════════════════════════════════════════
+   COMPARE (新機能)
+═══════════════════════════════════════════ */
+let selectedForCompare = new Set();
+
+function renderCompareSelect() {
+    const sessions = getSessions();
+    const selArea = document.getElementById('compare-select-area');
+    const tblArea = document.getElementById('compare-table-area');
+    if (!sessions.length) {
+        selArea.innerHTML = '<div style="color:#555;font-size:0.8rem;padding:20px 0;">保存済みセッションがありません</div>';
+        tblArea.innerHTML = '';
+        return;
+    }
+    selArea.innerHTML = sessions.map(s => `
+        <div class="compare-item ${selectedForCompare.has(s.id)?'selected':''}" 
+             onclick="toggleCompare(${s.id})" data-id="${s.id}">
+            ${s.shooter}<br><span style="font-size:0.6rem;color:#666;">${s.timestamp.slice(0,10)}</span>
+        </div>
+    `).join('');
+    renderCompareTable();
+}
+
+function toggleCompare(id) {
+    if (selectedForCompare.has(id)) selectedForCompare.delete(id);
+    else { if (selectedForCompare.size >= 4) { alert('最大4セッションまで比較可能'); return; } selectedForCompare.add(id); }
+    renderCompareSelect();
+}
+
+function renderCompareTable() {
+    const tbl = document.getElementById('compare-table-area');
+    if (selectedForCompare.size < 2) {
+        tbl.innerHTML = '<div style="color:#555;font-size:0.75rem;padding:12px 0;">2つ以上選択してください</div>';
+        return;
+    }
+    const sessions = getSessions().filter(s => selectedForCompare.has(s.id));
+    const rows = [
+        ['初弾 (s)', s => s.stats.speed?.first?.val, true],
+        ['平均間隔 (s)', s => s.stats.control?.split?.val, true],
+        ['散布界 (cm)', s => s.stats.accuracy?.group?.val, true],
+        ['命中数', s => s.hits, false],
+        ['総暴露 (s)', s => s.stats.exposure?.total?.val, true],
+        ['発射数', s => s.shotTimes?.length, false],
+    ];
+    const header = `<tr><th>指標</th>${sessions.map(s=>`<th>${s.shooter}<br><span style="font-weight:400">${s.timestamp.slice(5,10)}</span></th>`).join('')}</tr>`;
+    const body = rows.map(([label, fn, lowerBetter]) => {
+        const vals = sessions.map(s => fn(s));
+        const best = lowerBetter ? Math.min(...vals.filter(Boolean)) : Math.max(...vals.filter(Boolean));
+        const cells = vals.map(v => {
+            const isBest = v !== undefined && (lowerBetter ? v <= best : v >= best);
+            return `<td class="${isBest?'compare-best':''}">${v !== undefined ? (typeof v === 'number' ? v.toFixed(2) : v) : '--'}</td>`;
+        }).join('');
+        return `<tr><td>${label}</td>${cells}</tr>`;
+    }).join('');
+    tbl.innerHTML = `<table class="compare-table"><thead>${header}</thead><tbody>${body}</tbody></table>`;
+}
+
+/* ═══════════════════════════════════════════
+   CSV EXPORT
+═══════════════════════════════════════════ */
+function exportFullCSV() {
+    const shooter = document.getElementById('cfg-shooter').value;
+    const rangeArr = document.getElementById('cfg-range').value.split('/').map(s=>s.trim());
+    const now = new Date().toLocaleString('ja-JP');
+    let headers = ["Timestamp","ShooterID","Total_Shots","Goal_Hits","Actual_Hits","Hits_Grade","Max_Grouping_cm","Grouping_Grade","FirstShot_s","FirstShot_Grade","AvgSplit_s","Split_Grade","Reload_s","Reload_Grade","TotalExposure_s","Exposure_Grade"];
+    rangeArr.forEach((r,i) => headers.push(`Range_T${i+1}_m`,`Grouping_T${i+1}_cm`));
+    for (let i=1;i<=shotTimes.length;i++) headers.push(`Shot${i}_Time`);
+    let row = [
+        now, shooter,
+        document.getElementById('cfg-total-shots').value, document.getElementById('cfg-target-hits').value,
+        finalStats.accuracy.hits.val, finalStats.accuracy.hits.grade,
+        finalStats.accuracy.group.val.toFixed(2), finalStats.accuracy.group.grade,
+        finalStats.speed.first.val.toFixed(2), finalStats.speed.first.grade,
+        finalStats.control.split.val.toFixed(2), finalStats.control.split.grade,
+        finalStats.control.reload.val.toFixed(2), finalStats.control.reload.grade,
+        finalStats.exposure.total.val.toFixed(2), finalStats.exposure.total.grade
+    ];
+    rangeArr.forEach((r,i) => row.push(r,(individualGroupings[i]||0).toFixed(2)));
+    shotTimes.forEach(t => row.push(t.toFixed(2)));
+    const csv = "\uFEFF" + headers.join(",") + "\n" + row.join(",");
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `MaLI_Report_${shooter}.csv`; a.click();
+}
+
+/* ═══════════════════════════════════════════
+   START BUTTON
+═══════════════════════════════════════════ */
+document.getElementById('startBtn').onclick = async () => {
+    const btn = document.getElementById('startBtn');
+    btn.disabled = true;
+    try {
+        await initAudio();
+    } catch(e) {
+        alert('マイクへのアクセスが拒否されました。設定を確認してください。');
+        btn.disabled = false; return;
+    }
+    shotTimes = []; lastShotTime = -999;
+    document.getElementById('shot-log').innerHTML = '';
+    document.getElementById('timer-val').innerText = "STANDBY";
+    document.getElementById('timer-val').style.color = '#ffcc00';
+    btn.innerText = "STANDBY...";
+    btn.classList.remove('done');
+
+    const delay = 2000 + Math.random() * 2000;
+    setTimeout(() => {
+        // スタートビープ
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.frequency.value = 880; gain.gain.value = 0.3;
+        osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+
+        startTime = performance.now(); isRunning = true;
+        document.getElementById('timer-val').innerText = "0.00";
+        document.getElementById('timer-val').style.color = '#32d74b';
+        btn.innerText = "●  RECORDING";
+        btn.disabled = false;
+    }, delay);
+};
 </script>
 </body>
 </html>
