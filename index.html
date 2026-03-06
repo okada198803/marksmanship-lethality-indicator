@@ -65,6 +65,37 @@
             font-family: 'Share Tech Mono', monospace;
         }
 
+        /* ─── PRESET SELECTOR ─── */
+        .preset-bar { display: flex; gap: 6px; margin-bottom: 14px; }
+        .preset-btn { 
+            flex: 1; padding: 10px 6px; border: 1px solid #333; border-radius: 4px;
+            background: #1a1a1a; color: #aaa; font-size: 0.7rem; font-weight: 700;
+            cursor: pointer; text-align: center; letter-spacing: 1px;
+            font-family: 'Barlow Condensed', sans-serif; transition: all 0.15s;
+            line-height: 1.3;
+        }
+        .preset-btn:hover { border-color: #555; color: #ddd; }
+        .preset-btn.active { border-color: var(--primary); background: #1a1400; color: var(--primary); }
+        .preset-btn .preset-name { font-size: 0.8rem; display: block; }
+        .preset-btn .preset-desc { font-size: 0.6rem; color: inherit; opacity: 0.7; display: block; margin-top: 2px; }
+
+        /* ─── TARGET RANGE ROWS ─── */
+        .target-range-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+        .target-range-row { 
+            display: flex; align-items: center; gap: 8px; 
+            background: #0d0d0d; border: 1px solid #222; border-radius: 4px; padding: 8px 10px;
+        }
+        .target-range-label { 
+            font-size: 0.65rem; color: var(--text-dim); font-weight: 700; 
+            min-width: 52px; letter-spacing: 0.5px; font-family: 'Share Tech Mono', monospace;
+        }
+        .target-range-row input { 
+            flex: 1; background: var(--input-bg); border: none; color: var(--input-text);
+            padding: 7px 10px; border-radius: 4px; font-size: 0.9rem; font-weight: 700;
+            font-family: 'Share Tech Mono', monospace;
+        }
+        .target-range-unit { font-size: 0.65rem; color: #555; min-width: 16px; }
+
         /* ─── TIMER ─── */
         #timer-val { 
             font-size: 5.5rem; font-weight: 800; text-align: center; color: var(--success); 
@@ -195,20 +226,39 @@
 
 <div class="card">
     <h2>1. Scenario Config</h2>
+
+    <!-- プリセット選択 -->
+    <div class="preset-bar">
+        <button class="preset-btn" id="preset-btn-close" onclick="applyPreset('close')">
+            <span class="preset-name">至近距離</span>
+            <span class="preset-desc">5発 / CQB想定</span>
+        </button>
+        <button class="preset-btn" id="preset-btn-multi" onclick="applyPreset('multi')">
+            <span class="preset-name">複数距離</span>
+            <span class="preset-desc">10発 / 多目標想定</span>
+        </button>
+        <button class="preset-btn" id="preset-btn-custom" onclick="applyPreset('custom')">
+            <span class="preset-name">カスタム</span>
+            <span class="preset-desc">手動設定</span>
+        </button>
+    </div>
+
     <div class="config-grid">
         <div style="grid-column: span 2;"><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
-        <div style="grid-column: span 2;">
-            <label>射距離 (m) ※複数なら / で区切る</label>
-            <input type="text" id="cfg-range" value="10" oninput="autoConfigTargets(this.value)">
-        </div>
-        <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5"></div>
+        <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5" oninput="onShotCountChange()"></div>
         <div><label>目標命中数 (Goal)</label><input type="number" id="cfg-target-hits" value="5"></div>
         <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="90"></div>
         <div><label>目標散布界 (cm)</label><input type="number" id="cfg-target-grouping" value="15.0"></div>
         <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
         <div><label>目標間隔 (s)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
         <div><label>目標リロード (s)</label><input type="number" id="cfg-target-reload" value="3.5" step="0.1"></div>
-        <div><label>リロード弾数</label><input type="number" id="cfg-reload-at" value="0"></div>
+        <div><label>リロード弾数</label><input type="number" id="cfg-reload-at" value="0" oninput="onShotCountChange()"></div>
+    </div>
+
+    <!-- 各ターゲットの射距離設定 -->
+    <div style="margin-top: 14px;">
+        <label style="margin-bottom: 6px;">各ターゲット射距離 (m)</label>
+        <div class="target-range-list" id="target-range-list"></div>
     </div>
 </div>
 
@@ -288,14 +338,113 @@ function switchTab(name) {
 }
 
 /* ═══════════════════════════════════════════
-   AUTO CONFIG
+   PRESETS & TARGET RANGE CONFIG
 ═══════════════════════════════════════════ */
-function autoConfigTargets(val) {
-    const ranges = val.split('/').map(r => r.trim()).filter(Boolean);
-    if (ranges.length > 0) {
-        const maxRange = Math.max(...ranges.map(Number));
-        document.getElementById('cfg-target-grouping').value = (maxRange * 1.2).toFixed(1);
+const PRESETS = {
+    close: {
+        label: '至近距離',
+        totalShots: 5, targetHits: 4, targetHeight: 120,
+        targetGrouping: 40, targetFirst: 0.5, targetSplit: 0.5,
+        targetReload: 3.5, reloadAt: 3,
+        defaultRanges: [15, 15, 15, 15, 15]
+    },
+    multi: {
+        label: '複数距離',
+        totalShots: 10, targetHits: 5, targetHeight: 120,
+        targetGrouping: 80, targetFirst: 2.5, targetSplit: 2.5,
+        targetReload: 3.5, reloadAt: 6,
+        defaultRanges: [300, 300, 300, 200, 200, 200, 100, 100, 100, 100]
+    },
+    custom: null
+};
+
+let currentPreset = 'custom';
+
+function applyPreset(key) {
+    currentPreset = key;
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('preset-btn-' + key).classList.add('active');
+
+    if (key === 'custom') { buildTargetRangeList(); return; }
+
+    const p = PRESETS[key];
+    document.getElementById('cfg-total-shots').value  = p.totalShots;
+    document.getElementById('cfg-target-hits').value   = p.targetHits;
+    document.getElementById('cfg-target-height').value = p.targetHeight;
+    document.getElementById('cfg-target-grouping').value = p.targetGrouping;
+    document.getElementById('cfg-target-first').value  = p.targetFirst;
+    document.getElementById('cfg-target-split').value  = p.targetSplit;
+    document.getElementById('cfg-target-reload').value = p.targetReload;
+    document.getElementById('cfg-reload-at').value     = p.reloadAt;
+    buildTargetRangeList(p.defaultRanges);
+}
+
+function onShotCountChange() {
+    buildTargetRangeList();
+}
+
+// リロード位置でターゲットをグループ分けして射距離リストを生成
+function buildTargetRangeList(defaults) {
+    const total    = parseInt(document.getElementById('cfg-total-shots').value) || 1;
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value) || 0;
+    const list     = document.getElementById('target-range-list');
+
+    // 既存の値を保持
+    const existing = Array.from(list.querySelectorAll('input')).map(i => i.value);
+
+    list.innerHTML = '';
+
+    // ターゲット（マガジン）のグループを作成
+    // reloadAt=0: 全部1グループ、reloadAt>0: 第1マガジン(reloadAt発)+第2マガジン(残り)
+    const groups = [];
+    if (reloadAt > 0 && reloadAt < total) {
+        groups.push({ label: 'MAG-1', shots: reloadAt });
+        groups.push({ label: 'MAG-2', shots: total - reloadAt });
+    } else {
+        groups.push({ label: 'TARGET', shots: total });
     }
+
+    let shotIdx = 0;
+    groups.forEach((grp, gi) => {
+        // グループヘッダー
+        if (groups.length > 1) {
+            const hdr = document.createElement('div');
+            hdr.style.cssText = 'font-size:0.6rem;color:#555;letter-spacing:1px;padding:2px 0 0 2px;font-family:monospace;';
+            hdr.textContent = `── ${grp.label} (${grp.shots}発) ──`;
+            list.appendChild(hdr);
+        }
+
+        for (let i = 0; i < grp.shots; i++) {
+            const row = document.createElement('div');
+            row.className = 'target-range-row';
+            const globalIdx = shotIdx;
+            const defVal = defaults ? (defaults[globalIdx] ?? 10) : (existing[globalIdx] ?? 10);
+            row.innerHTML = `
+                <span class="target-range-label">Shot #${globalIdx + 1}</span>
+                <input type="number" min="1" max="9999" value="${defVal}" 
+                       oninput="onRangeChange()" placeholder="距離">
+                <span class="target-range-unit">m</span>`;
+            list.appendChild(row);
+            shotIdx++;
+        }
+    });
+}
+
+function onRangeChange() {
+    // 手動変更でカスタムに切り替え（プリセット表示は維持）
+}
+
+// 全ショットの射距離配列を取得
+function getRangeArray() {
+    return Array.from(document.querySelectorAll('#target-range-list input'))
+        .map(i => parseFloat(i.value) || 10);
+}
+
+// 旧 autoConfigTargets 互換（CSV出力用に射距離文字列を生成）
+function getRangeString() {
+    const arr = getRangeArray();
+    const unique = [...new Set(arr)];
+    return unique.join(' / ');
 }
 
 /* ═══════════════════════════════════════════
@@ -477,6 +626,7 @@ function analyzeBlueMarks(ctx, w, h, targetNum) {
     ctx.fillStyle = 'rgba(0,122,255,0.85)'; ctx.font = 'bold 18px monospace';
     ctx.fillText(`T${targetNum}: ${finalShots.length} hits`, 10, 24);
 
+    const rangeArr = getRangeArray();
     const cmPerPx = parseFloat(document.getElementById('cfg-target-height').value) / h;
     let maxD = 0;
     for (let i = 0; i < finalShots.length; i++)
@@ -732,7 +882,9 @@ function saveSession() {
     const session = {
         id: Date.now(),
         shooter: document.getElementById('cfg-shooter').value,
-        range: document.getElementById('cfg-range').value,
+        range: getRangeString(),
+        rangeArr: getRangeArray(),
+        preset: currentPreset,
         timestamp: new Date().toLocaleString('ja-JP'),
         shotTimes: [...shotTimes],
         stats: JSON.parse(JSON.stringify(finalStats)),
@@ -854,7 +1006,7 @@ function renderCompareTable() {
 ═══════════════════════════════════════════ */
 function exportFullCSV() {
     const shooter = document.getElementById('cfg-shooter').value;
-    const rangeArr = document.getElementById('cfg-range').value.split('/').map(s=>s.trim());
+    const rangeArr = getRangeArray();
     const now = new Date().toLocaleString('ja-JP');
     let headers = ["Timestamp","ShooterID","Total_Shots","Goal_Hits","Actual_Hits","Hits_Grade","Max_Grouping_cm","Grouping_Grade","FirstShot_s","FirstShot_Grade","AvgSplit_s","Split_Grade","Reload_s","Reload_Grade","TotalExposure_s","Exposure_Grade"];
     rangeArr.forEach((r,i) => headers.push(`Range_T${i+1}_m`,`Grouping_T${i+1}_cm`));
@@ -912,6 +1064,9 @@ document.getElementById('startBtn').onclick = async () => {
         btn.disabled = false;
     }, delay);
 };
+
+// ─── 初期化 ───
+applyPreset('custom');
 </script>
 </body>
 </html>
