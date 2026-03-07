@@ -680,12 +680,33 @@ async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
         return { count: 0, grouping: 0 };
     }
 
-    const prompt = `この画像は射撃訓練の標的写真です。
-射距離: ${rangeM}m、標的高さ: ${targetH}cm、画像縦サイズ: ${drawH}px
+    const prompt = `あなたは射撃訓練の標的写真を解析する専門家です。
+この画像を注意深く観察してください。
 
-弾痕（銃弾による穴・裂け目・弾痕シール）を検出し、JSON形式のみで回答してください（説明文・コードブロック不要）:
+【標的情報】
+- 射距離: ${rangeM}m
+- 標的高さ: ${targetH}cm（画像縦${drawH}px全体がこの高さに対応）
+- 標的幅: 画像横${drawW}px
 
-{"hits":<命中数(整数)>,"shots":[{"x":<x座標px>,"y":<y座標px>},...], "grouping_cm":<最大散布界cm(小数1桁)>,"note":"<所見20字以内>"}`;
+【弾痕の特徴 - 必ずこれらを探してください】
+実弾による弾痕は以下のいずれかの形状です：
+1. 小さな穴の周囲に金属ジャケットの破片が星状・花びら状に飛び出している
+2. 紙が裂けてめくれ上がっている小さな点
+3. グレーの標的紙上にある直径5〜15mm程度の小さな損傷
+4. 金属光沢（シルバー・グレー）の小さなスポット
+
+【重要な注意事項】
+- 背景はオレンジ色と濃いグレーの複雑なパターンです
+- 弾痕はグレーの標的紙部分に集中しています
+- 非常に小さいため見落としやすいです。画像を隅々まで確認してください
+- オレンジ色の印刷デザインは弾痕ではありません
+- 弾痕が見つからない場合でも「0発」と断言せず、疑わしい箇所があれば含めてください
+
+【出力形式】
+以下のJSONのみを返答してください（説明文・コードブロック不要）:
+{"hits":<命中数>,"shots":[{"x":<x座標px>,"y":<y座標px>,"confidence":<確信度0.0-1.0>}...],"grouping_cm":<散布界cm>,"note":"<所見>","search_notes":"<どこを重点的に探したか>"}
+
+座標は画像左上を(0,0)、右下を(${drawW},${drawH})とするピクセル座標で指定してください。`;
 
     try {
         const response = await fetch(
@@ -696,11 +717,14 @@ async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
                 body: JSON.stringify({
                     contents: [{
                         parts: [
+                            // フル画像
                             { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+                            // 中央クロップ画像（弾痕が集中しやすい上半分）
+                            { inline_data: { mime_type: 'image/jpeg', data: getCropBase64(cvs, drawW, drawH) } },
                             { text: prompt }
                         ]
                     }],
-                    generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
                 })
             }
         );
@@ -718,13 +742,19 @@ async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
         // ── 弾痕を画像上にマーク ──
         const shots = parsed.shots || [];
         shots.forEach((s, idx) => {
-            ctx.beginPath(); ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3;
+            const conf = s.confidence ?? 1.0;
+            // 確信度に応じて色を変える：高(緑)→中(黄)→低(橙)
+            const color = conf >= 0.7 ? '#00ff88' : conf >= 0.4 ? '#ffcc00' : '#ff9500';
+            ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 3;
             ctx.arc(s.x, s.y, 22, 0, Math.PI * 2); ctx.stroke();
             ctx.beginPath(); ctx.fillStyle = '#ff3b30';
             ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#00ff88';
+            ctx.fillStyle = color;
             ctx.font = `bold ${Math.max(14, drawW/60)}px monospace`;
             ctx.fillText(`${idx+1}`, s.x + 26, s.y + 5);
+            // 確信度テキスト
+            ctx.font = `${Math.max(10, drawW/80)}px monospace`;
+            ctx.fillText(`${Math.round(conf*100)}%`, s.x + 26, s.y + 20);
         });
 
         // ── 散布界ライン ──
@@ -760,6 +790,22 @@ async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
         ctx.fillText(`T${targetNum}: 解析失敗 - ${err.message.slice(0,60)}`, 8, 24);
         return { count: 0, grouping: 0 };
     }
+}
+
+// 標的中央上部（弾痕が集中しやすいエリア）をクロップして返す
+function getCropBase64(srcCanvas, w, h) {
+    const cropCanvas = document.createElement('canvas');
+    // 中央70%幅、上部60%高さをクロップして2倍拡大
+    const cropX = Math.floor(w * 0.15);
+    const cropY = Math.floor(h * 0.10);
+    const cropW = Math.floor(w * 0.70);
+    const cropH = Math.floor(h * 0.60);
+    cropCanvas.width  = Math.min(cropW * 2, 1200);
+    cropCanvas.height = Math.min(cropH * 2, 1200);
+    const scale = cropCanvas.width / cropW;
+    const ctx2 = cropCanvas.getContext('2d');
+    ctx2.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, cropCanvas.width, cropCanvas.height);
+    return cropCanvas.toDataURL('image/jpeg', 0.90).split(',')[1];
 }
 
 function analyzeBlueMarks(ctx, w, h, targetNum) {
