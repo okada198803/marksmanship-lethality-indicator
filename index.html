@@ -281,24 +281,53 @@
 <div id="acquisition-area" style="display:none;" class="card">
     <h2>3. Target Analysis</h2>
 
-    <!-- 検出感度スライダー -->
-    <div style="background:#0d0d0d; border:1px solid #222; border-radius:4px; padding:10px; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <label style="margin:0;">青色検出感度</label>
-            <span style="font-family:monospace; font-size:0.8rem; color:var(--primary);" id="sensitivity-label">3 - 標準</span>
-        </div>
-        <input type="range" id="detect-sensitivity" min="1" max="5" step="1" value="3" style="width:100%;"
-               oninput="updateSensitivityLabel(this.value)">
-        <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#444; margin-top:3px;">
-            <span>1 厳格</span><span>2</span><span>3 標準</span><span>4</span><span>5 緩い</span>
-        </div>
-        <div style="font-size:0.6rem; color:#555; margin-top:6px; line-height:1.5;">
-            ※ 認識できない場合は感度を上げてください。誤検出が多い場合は下げてください。<br>
-            ※ 感度4以上では検出ピクセル（黄色点）も表示されます。ブラウザのConsoleに詳細ログが出ます。
+    <!-- モード切り替え -->
+    <div class="preset-bar" style="margin-bottom:12px;">
+        <button class="preset-btn active" id="mode-btn-seal" onclick="setAnalysisMode('seal')">
+            <span class="preset-name">🔵 シールあり</span>
+            <span class="preset-desc">青色弾痕シール検出</span>
+        </button>
+        <button class="preset-btn" id="mode-btn-ai" onclick="setAnalysisMode('ai')">
+            <span class="preset-name">🤖 AI解析</span>
+            <span class="preset-desc">実弾痕・穴を自動認識</span>
+        </button>
+    </div>
+
+    <!-- シールモード設定 -->
+    <div id="mode-panel-seal">
+        <div style="background:#0d0d0d; border:1px solid #222; border-radius:4px; padding:10px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="margin:0;">青色検出感度</label>
+                <span style="font-family:monospace; font-size:0.8rem; color:var(--primary);" id="sensitivity-label">3 - 標準</span>
+            </div>
+            <input type="range" id="detect-sensitivity" min="1" max="5" step="1" value="3" style="width:100%;"
+                   oninput="updateSensitivityLabel(this.value)">
+            <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#444; margin-top:3px;">
+                <span>1 厳格</span><span>2</span><span>3 標準</span><span>4</span><span>5 緩い</span>
+            </div>
+            <div style="font-size:0.6rem; color:#555; margin-top:6px; line-height:1.5;">
+                ※ 感度4以上で検出ピクセル（黄色点）も表示。ConsoleにDEBUGログ出力。
+            </div>
         </div>
     </div>
 
-    <button class="upload-btn" onclick="document.getElementById('file-input').click()">写真を一括アップロード</button>
+    <!-- AIモード設定 -->
+    <div id="mode-panel-ai" style="display:none;">
+        <div style="background:#0a0f0a; border:1px solid #1a3a1a; border-radius:4px; padding:10px; margin-bottom:10px; font-size:0.7rem; color:#4a8a4a; line-height:1.7;">
+            🤖 <strong style="color:#32d74b;">Gemini AI による画像解析</strong>（無料）<br>
+            実際の弾痕（穴・裂け目）をAIが直接認識します。シール不要。<br>
+            APIキーは <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#32d74b;">Google AI Studio</a> で無料取得できます。
+        </div>
+        <div style="margin-bottom:10px;">
+            <label>Gemini API Key</label>
+            <input type="password" id="gemini-api-key" placeholder="AIza..." 
+                   style="width:100%; background:#1a1a1a; border:1px solid #333; color:#eee; padding:10px; border-radius:4px; font-family:monospace; font-size:0.85rem;"
+                   oninput="saveApiKey(this.value)">
+            <div style="font-size:0.6rem; color:#555; margin-top:4px;">※ キーはブラウザのlocalStorageに保存されます。GitHub等には送信されません。</div>
+        </div>
+    </div>
+
+    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()">写真を一括アップロード</button>
     <input type="file" id="file-input" accept="image/*" multiple style="display:none" onchange="processMultipleImages(this)">
     <div id="canvas-list"></div>
 </div>
@@ -576,35 +605,161 @@ function finishEngagement() {
 }
 
 /* ═══════════════════════════════════════════
-   IMAGE ANALYSIS (最適化版)
+   IMAGE ANALYSIS - Dual Mode
 ═══════════════════════════════════════════ */
+let analysisMode = 'seal'; // 'seal' | 'ai'
+
+function setAnalysisMode(mode) {
+    analysisMode = mode;
+    document.querySelectorAll('#acquisition-area .preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('mode-btn-' + mode).classList.add('active');
+    document.getElementById('mode-panel-seal').style.display = mode === 'seal' ? 'block' : 'none';
+    document.getElementById('mode-panel-ai').style.display  = mode === 'ai'   ? 'block' : 'none';
+    document.getElementById('upload-btn').textContent =
+        mode === 'ai' ? '写真を一括アップロード（AI解析）' : '写真を一括アップロード（シール検出）';
+}
+
 async function processMultipleImages(input) {
     const files = Array.from(input.files);
     const container = document.getElementById('canvas-list');
     container.innerHTML = "";
     cumulativeHits = 0; individualGroupings = [];
+
     for (let i = 0; i < files.length; i++) {
+        const rangeM = getRangeArray()[i] || 10;
         const wrapper = document.createElement('div');
         wrapper.className = "canvas-container";
-        const cvs = document.createElement('canvas'); cvs.className = "shot-canvas";
-        wrapper.appendChild(cvs); container.appendChild(wrapper);
-        await new Promise(resolve => {
-            const img = new Image();
-            img.onload = () => {
+        wrapper.style.position = 'relative';
+        const cvs = document.createElement('canvas');
+        cvs.className = "shot-canvas";
+        wrapper.appendChild(cvs);
+        container.appendChild(wrapper);
+
+        const res = await new Promise(resolve => {
+            const imgEl = new Image();
+            imgEl.onload = async () => {
                 const ctx = cvs.getContext('2d', { willReadFrequently: true });
-                const MAX_W = 1000;
-                let drawW = img.width, drawH = img.height;
+                const MAX_W = 900;
+                let drawW = imgEl.width, drawH = imgEl.height;
                 if (drawW > MAX_W) { drawH = Math.round(drawH * MAX_W / drawW); drawW = MAX_W; }
                 cvs.width = drawW; cvs.height = drawH;
-                ctx.drawImage(img, 0, 0, drawW, drawH);
-                const res = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
-                cumulativeHits += res.count; individualGroupings.push(res.grouping);
-                resolve();
+                ctx.drawImage(imgEl, 0, 0, drawW, drawH);
+
+                let result;
+                if (analysisMode === 'ai') {
+                    // ステータスオーバーレイ
+                    const statusEl = document.createElement('div');
+                    statusEl.style.cssText = 'position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.8);color:#ffcc00;font-family:monospace;font-size:0.75rem;padding:6px 10px;border-radius:4px;z-index:10;';
+                    statusEl.textContent = `T${i+1} AI解析中...`;
+                    wrapper.appendChild(statusEl);
+                    const base64 = cvs.toDataURL('image/jpeg', 0.85).split(',')[1];
+                    result = await analyzeWithClaude(base64, i + 1, rangeM, ctx, drawW, drawH);
+                    statusEl.textContent = `T${i+1}: ${result.count}発命中 / 散布${result.grouping.toFixed(1)}cm`;
+                } else {
+                    result = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
+                }
+                resolve(result);
             };
-            img.src = URL.createObjectURL(files[i]);
+            imgEl.src = URL.createObjectURL(files[i]);
         });
+
+        cumulativeHits += res.count;
+        individualGroupings.push(res.grouping);
     }
     generateAssessment();
+}
+
+async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
+    const targetH = parseFloat(document.getElementById('cfg-target-height').value);
+    const apiKey  = document.getElementById('gemini-api-key').value.trim();
+
+    if (!apiKey) {
+        ctx.fillStyle = 'rgba(255,59,48,0.85)'; ctx.fillRect(0, 0, drawW, 36);
+        ctx.fillStyle = '#fff'; ctx.font = '13px monospace';
+        ctx.fillText(`T${targetNum}: APIキーを入力してください`, 8, 24);
+        return { count: 0, grouping: 0 };
+    }
+
+    const prompt = `この画像は射撃訓練の標的写真です。
+射距離: ${rangeM}m、標的高さ: ${targetH}cm、画像縦サイズ: ${drawH}px
+
+弾痕（銃弾による穴・裂け目・弾痕シール）を検出し、JSON形式のみで回答してください（説明文・コードブロック不要）:
+
+{"hits":<命中数(整数)>,"shots":[{"x":<x座標px>,"y":<y座標px>},...], "grouping_cm":<最大散布界cm(小数1桁)>,"note":"<所見20字以内>"}`;
+
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+                            { text: prompt }
+                        ]
+                    }],
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
+                })
+            }
+        );
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        console.log(`[T${targetNum}] Gemini response:`, text);
+
+        const jsonMatch = text.match(/\{[\s\S]*?\}/);
+        if (!jsonMatch) throw new Error('JSON not found: ' + text.slice(0, 80));
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        // ── 弾痕を画像上にマーク ──
+        const shots = parsed.shots || [];
+        shots.forEach((s, idx) => {
+            ctx.beginPath(); ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3;
+            ctx.arc(s.x, s.y, 22, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.fillStyle = '#ff3b30';
+            ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#00ff88';
+            ctx.font = `bold ${Math.max(14, drawW/60)}px monospace`;
+            ctx.fillText(`${idx+1}`, s.x + 26, s.y + 5);
+        });
+
+        // ── 散布界ライン ──
+        if (shots.length >= 2) {
+            let maxD = 0, p1, p2;
+            for (let i = 0; i < shots.length; i++)
+                for (let j = i+1; j < shots.length; j++) {
+                    const d = Math.hypot(shots[i].x-shots[j].x, shots[i].y-shots[j].y);
+                    if (d > maxD) { maxD = d; p1 = shots[i]; p2 = shots[j]; }
+                }
+            if (p1 && p2) {
+                ctx.beginPath(); ctx.strokeStyle = 'rgba(255,204,0,0.6)';
+                ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+                ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+                ctx.stroke(); ctx.setLineDash([]);
+            }
+        }
+
+        // ── AI所見 ──
+        if (parsed.note) {
+            const noteEl = document.createElement('div');
+            noteEl.style.cssText = 'background:#0d0d0d;color:#aaa;font-size:0.7rem;padding:6px 10px;border-top:1px solid #222;font-family:monospace;';
+            noteEl.textContent = `AI所見: ${parsed.note}`;
+            ctx.canvas.parentElement.appendChild(noteEl);
+        }
+
+        return { count: parsed.hits || shots.length, grouping: parsed.grouping_cm || 0 };
+
+    } catch (err) {
+        console.error(`[T${targetNum}] Gemini error:`, err);
+        ctx.fillStyle = 'rgba(255,59,48,0.85)'; ctx.fillRect(0, 0, drawW, 36);
+        ctx.fillStyle = '#fff'; ctx.font = '13px monospace';
+        ctx.fillText(`T${targetNum}: 解析失敗 - ${err.message.slice(0,60)}`, 8, 24);
+        return { count: 0, grouping: 0 };
+    }
 }
 
 function analyzeBlueMarks(ctx, w, h, targetNum) {
@@ -1124,6 +1279,18 @@ document.getElementById('startBtn').onclick = async () => {
 
 // ─── 初期化 ───
 applyPreset('custom');
+
+// APIキー保存・復元
+function saveApiKey(val) {
+    try { localStorage.setItem('mali_gemini_key', val); } catch(e) {}
+}
+function loadApiKey() {
+    try {
+        const k = localStorage.getItem('mali_gemini_key');
+        if (k) document.getElementById('gemini-api-key').value = k;
+    } catch(e) {}
+}
+loadApiKey();
 </script>
 </body>
 </html>
