@@ -325,6 +325,34 @@
                    oninput="saveApiKey(this.value)">
             <div style="font-size:0.6rem; color:#555; margin-top:4px;">※ キーはブラウザのlocalStorageに保存されます。GitHub等には送信されません。</div>
         </div>
+
+        <!-- プロンプトバリアント選択 -->
+        <div style="margin-bottom:10px;">
+            <label>プロンプトバリアント（精度テスト用）</label>
+            <div style="display:flex; gap:6px; margin-top:4px;">
+                <button class="preset-btn active" id="pv-btn-A" onclick="setPromptVariant('A')" style="flex:1;">
+                    <span class="preset-name">A: 標準</span>
+                    <span class="preset-desc">現在の実装</span>
+                </button>
+                <button class="preset-btn" id="pv-btn-B" onclick="setPromptVariant('B')" style="flex:1;">
+                    <span class="preset-name">B: 簡潔</span>
+                    <span class="preset-desc">シンプル指示</span>
+                </button>
+                <button class="preset-btn" id="pv-btn-C" onclick="setPromptVariant('C')" style="flex:1;">
+                    <span class="preset-name">C: 厳格</span>
+                    <span class="preset-desc">確信度閾値高</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- デバッグパネル -->
+        <div id="ai-debug-panel" style="background:#050a05; border:1px solid #1a2a1a; border-radius:4px; padding:10px; display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-size:0.65rem; color:#32d74b; font-family:monospace; letter-spacing:1px;">🔍 AI解析ログ</span>
+                <button onclick="clearAiDebug()" style="background:none; border:1px solid #333; color:#555; font-size:0.6rem; padding:2px 8px; cursor:pointer; border-radius:3px;">クリア</button>
+            </div>
+            <div id="ai-debug-log" style="font-family:monospace; font-size:0.65rem; color:#8a8; max-height:200px; overflow-y:auto; line-height:1.6;"></div>
+        </div>
     </div>
 
     <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()">写真を一括アップロード</button>
@@ -669,6 +697,62 @@ async function processMultipleImages(input) {
     generateAssessment();
 }
 
+/* ═══════════════════════════════════════════
+   AI デバッグ & プロンプトバリアント
+═══════════════════════════════════════════ */
+let currentPromptVariant = 'A';
+
+function setPromptVariant(v) {
+    currentPromptVariant = v;
+    ['A','B','C'].forEach(x => {
+        const btn = document.getElementById(`pv-btn-${x}`);
+        if (btn) btn.classList.toggle('active', x === v);
+    });
+    aiLog(`プロンプトバリアント: ${v} に切替`);
+}
+
+function aiLog(msg, type='info') {
+    const panel = document.getElementById('ai-debug-panel');
+    const log   = document.getElementById('ai-debug-log');
+    if (!panel || !log) return;
+    panel.style.display = 'block';
+    const color = type === 'error' ? '#f66' : type === 'success' ? '#6f6' : '#8a8';
+    const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    log.innerHTML += `<div style="color:${color}"><span style="color:#555">[${time}]</span> ${msg}</div>`;
+    log.scrollTop = log.scrollHeight;
+}
+
+function clearAiDebug() {
+    const log = document.getElementById('ai-debug-log');
+    if (log) log.innerHTML = '';
+}
+
+function buildPrompt(variant, drawW, drawH, targetH, rangeM) {
+    if (variant === 'B') {
+        return `Look at the target image and count bullet holes. A bullet hole is a small round perforation in the paper, often with torn edges.
+
+Output JSON only (no explanation):
+{"hits":<int>,"shots":[{"x":<px>,"y":<px>,"confidence":<0-1>}],"grouping_cm":<float>,"note":"<observation>"}
+
+Image is ${drawW}x${drawH}px. Scale: ${drawH}px = ${targetH}cm. Range: ${rangeM}m.`;
+    }
+    if (variant === 'C') {
+        return `## Strict Bullet Hole Detection
+
+Detect ONLY bullet holes you are highly confident about (confidence >= 0.7).
+A bullet hole: small circular/oval perforation with metallic fragments or torn paper edges.
+DO NOT include: print patterns, fold lines, shadows, stains.
+
+Target: dark gray paper, orange human silhouette, score rings.
+Image: ${drawW}x${drawH}px, range ${rangeM}m, target height ${targetH}cm.
+
+## Output (JSON only, no markdown, no explanation)
+{"hits":<int>,"shots":[{"x":<px>,"y":<px>,"confidence":<0.7-1.0>}],"grouping_cm":<float>,"note":"<brief>"}`;
+    }
+    // A: 標準 — 実行時に別途構築
+    return null;
+}
+
 async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
     const targetH = parseFloat(document.getElementById('cfg-target-height').value);
     const apiKey  = document.getElementById('gemini-api-key').value.trim();
@@ -680,18 +764,20 @@ async function analyzeWithClaude(base64, targetNum, rangeM, ctx, drawW, drawH) {
         return { count: 0, grouping: 0 };
     }
 
-    const prompt = `## Task
+    // バリアントに応じてプロンプトを選択
+    const variantPrompt = buildPrompt(currentPromptVariant, drawW, drawH, targetH, rangeM);
+    const prompt = variantPrompt !== null ? variantPrompt : `## Task
 Detect ALL bullet holes in the target images and output their pixel coordinates.
 
 ## Images provided
 - Reference image: Close-up of 5 real bullet holes from another target (learn the visual appearance)
-- Image 1: Full target (\${drawW}x\${drawH}px — use THIS coordinate system for all output)
+- Image 1: Full target (${drawW}x${drawH}px — use THIS coordinate system for all output)
 - Image 2: Zoomed score zone of Image 1 (coordinates still in Image 1 space)
 
 ## Target description
 - Dark gray paper target with orange human silhouette printed on it
 - Score zones: 5-point (center) → 4-point → 3-point (outer) — bullet holes can appear ANYWHERE in the score zone
-- Range: \${rangeM}m, target height: \${targetH}cm
+- Range: ${rangeM}m, target height: ${targetH}cm
 
 ## Bullet hole appearance (see reference image)
 - Small hole surrounded by silver/metallic fragments radiating outward in a star pattern
@@ -704,8 +790,9 @@ Search the ENTIRE score zone (5-pt, 4-pt, 3-pt rings). Do NOT limit to center on
 ## Output format (JSON only — no explanation, no markdown code blocks)
 {"hits":<int>,"shots":[{"x":<px>,"y":<px>,"confidence":<0.0-1.0>}],"grouping_cm":<float>,"note":"<brief observation>"}
 
-Coordinates use Image 1 origin (top-left = 0,0). grouping_cm = max distance between any 2 shots (scale: \${drawH}px = \${targetH}cm).`;
+Coordinates use Image 1 origin (top-left = 0,0). grouping_cm = max distance between any 2 shots (scale: ${drawH}px = ${targetH}cm).`;
 
+    aiLog(`T${targetNum}: 解析開始 (バリアント:${currentPromptVariant}, ${drawW}x${drawH}px, ${rangeM}m)`);
 
     try {
         const response = await fetch(
@@ -746,6 +833,7 @@ Coordinates use Image 1 origin (top-left = 0,0). grouping_cm = max distance betw
 
         const text = data.candidates[0]?.content?.parts?.[0]?.text || '';
         console.log(`[T${targetNum}] Gemini raw:`, text);
+        aiLog(`T${targetNum}: レスポンス受信 (${text.length}文字)`);
 
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('JSON not found in: ' + text.slice(0, 100));
@@ -753,8 +841,11 @@ Coordinates use Image 1 origin (top-left = 0,0). grouping_cm = max distance betw
         try { parsed = JSON.parse(jsonMatch[0]); }
         catch(e) { throw new Error('JSON parse failed: ' + jsonMatch[0].slice(0, 80)); }
 
-        // ── 弾痕を画像上にマーク ──
+        // ── 結果をデバッグパネルに表示 ──
         const shots = parsed.shots || [];
+        const avgConf = shots.length > 0 ? (shots.reduce((s,x)=>s+(x.confidence??1),0)/shots.length*100).toFixed(0) : 0;
+        aiLog(`T${targetNum}: 検出${parsed.hits||0}発 / 散布${(parsed.grouping_cm||0).toFixed(1)}cm / 平均確信度${avgConf}%`, 'success');
+        if (parsed.note) aiLog(`T${targetNum} 所見: ${parsed.note}`);
         shots.forEach((s, idx) => {
             const conf = s.confidence ?? 1.0;
             // 確信度に応じて色を変える：高(緑)→中(黄)→低(橙)
@@ -799,12 +890,13 @@ Coordinates use Image 1 origin (top-left = 0,0). grouping_cm = max distance betw
 
     } catch (err) {
         console.error(`[T${targetNum}] Gemini error:`, err);
+        aiLog(`T${targetNum}: エラー — ${err.message.slice(0, 100)}`, 'error');
         ctx.fillStyle = 'rgba(200,0,0,0.9)'; ctx.fillRect(0, 0, drawW, 52);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 13px monospace';
         ctx.fillText(`T${targetNum}: AI解析失敗`, 8, 18);
         ctx.font = '11px monospace';
         ctx.fillText(err.message.slice(0, 80), 8, 36);
-        ctx.fillText('→ DevTools Console (F12) で詳細確認', 8, 50);
+        ctx.fillText('→ 上のAI解析ログを確認', 8, 50);
         return { count: 0, grouping: 0 };
     }
 }
