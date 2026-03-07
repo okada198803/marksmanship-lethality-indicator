@@ -228,7 +228,7 @@
     <h2>1. Scenario Config</h2>
 
     <!-- プリセット選択 -->
-    <div class="preset-bar">
+    <div class="preset-bar" id="scenario-preset-bar">
         <button class="preset-btn" id="preset-btn-close" onclick="applyPreset('close')">
             <span class="preset-name">至近距離</span>
             <span class="preset-desc">5発 / CQB想定</span>
@@ -414,7 +414,7 @@ let currentPreset = 'custom';
 
 function applyPreset(key) {
     currentPreset = key;
-    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('#scenario-preset-bar .preset-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('preset-btn-' + key).classList.add('active');
 
     if (key === 'custom') { buildTargetRangeList(); return; }
