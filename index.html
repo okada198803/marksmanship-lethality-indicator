@@ -269,6 +269,22 @@
         <label>検出閾値: <span id="sens-val">0.85</span></label>
         <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.85" 
                oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
+            <label style="margin:0; white-space:nowrap;">不感時間:</label>
+            <div style="display:flex; gap:6px;">
+                <button id="dt-btn-real" onclick="setDeadTime('real')"
+                    style="background:#1a1400; border:1px solid #444; color:#888; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
+                    実銃 0.07s
+                </button>
+                <button id="dt-btn-gas" onclick="setDeadTime('gas')"
+                    style="background:#003320; border:1px solid #32d74b; color:#32d74b; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer; font-weight:bold;">
+                    ガスBB 0.15s ✓
+                </button>
+            </div>
+            <span style="font-size:0.62rem; color:#555; flex-basis:100%;">
+                実銃: ボルト誤検知なし（0.07s） / ガスBB: ブローバック2重カウント防止（0.15s）
+            </span>
+        </div>
         <canvas id="viz"></canvas>
     </div>
     <div id="timer-val">0.00</div>
@@ -349,6 +365,47 @@
 <!-- ===== HISTORY TAB ===== -->
 <div id="tab-history" class="tab-pane">
     <div class="card">
+        <h2>Performance Trend</h2>
+
+        <!-- 射距離構成フィルタ -->
+        <div style="margin-bottom:10px;">
+            <div style="font-size:0.65rem; color:#555; margin-bottom:5px;">射距離構成（同一構成のみ比較）</div>
+            <div id="trend-range-filter" style="display:flex; gap:5px; flex-wrap:wrap;"></div>
+        </div>
+
+        <!-- 指標タブ -->
+        <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px;">
+            <button class="preset-btn active" id="trend-btn-first" onclick="setTrendMetric('first')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">初弾速度</span>
+            </button>
+            <button class="preset-btn" id="trend-btn-split" onclick="setTrendMetric('split')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">連射間隔</span>
+            </button>
+            <button class="preset-btn" id="trend-btn-group" onclick="setTrendMetric('group')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">散布界</span>
+            </button>
+            <button class="preset-btn" id="trend-btn-hits" onclick="setTrendMetric('hits')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">命中率</span>
+            </button>
+        </div>
+
+        <!-- グラフ本体 -->
+        <div style="position:relative; background:#050505; border-radius:4px; overflow:hidden;">
+            <!-- グレード凡例 -->
+            <div style="display:flex; gap:8px; padding:5px 10px; border-bottom:1px solid #111; flex-wrap:wrap;">
+                <span style="font-size:0.6rem; color:#32d74b;">■ A Elite</span>
+                <span style="font-size:0.6rem; color:#ffcc00;">■ B Standard</span>
+                <span style="font-size:0.6rem; color:#ff9500;">■ C Developing</span>
+                <span style="font-size:0.6rem; color:#ff3b30;">■ D Improvement</span>
+                <span style="font-size:0.6rem; color:#555; margin-left:auto;">点: 目標達成=緑 / 未達=赤</span>
+            </div>
+            <canvas id="trendCanvas" style="width:100%; height:180px; display:block;"></canvas>
+        </div>
+        <div id="trend-empty" style="display:none; text-align:center; color:#444; font-size:0.75rem; font-family:monospace; padding:30px 0;">
+            同一射距離構成のセッションが2件以上保存されるとグラフが表示されます
+        </div>
+    </div>
+    <div class="card">
         <h2>Session History</h2>
         <div id="history-list"></div>
     </div>
@@ -356,10 +413,75 @@
 
 <!-- ===== COMPARE TAB ===== -->
 <div id="tab-compare" class="tab-pane">
+
+    <!-- セッション比較 -->
     <div class="card">
         <h2>Compare Sessions</h2>
         <div id="compare-select-area" class="compare-select"></div>
         <div id="compare-table-area"></div>
+    </div>
+
+    <!-- 仮想敵シミュレーション -->
+    <div class="card">
+        <h2>⚔️ Combat Simulation</h2>
+        <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.6;">
+            モンテカルロ法（1,000試行）で自分のセッション実績と仮想敵の能力値を比較し、交戦勝率を算出します。<br>
+            勝敗判定: <strong style="color:#aaa;">命中率 ÷ 初弾速度</strong>（高い方が制圧に成功）
+        </div>
+
+        <!-- セッション選択 -->
+        <div style="margin-bottom:12px;">
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:5px;">自分のセッションを選択</label>
+            <select id="sim-session-select"
+                style="width:100%; background:#1a1a1a; border:1px solid #333; color:#eee; padding:8px; border-radius:4px; font-family:monospace; font-size:0.8rem;">
+                <option value="">-- セッションを選択 --</option>
+            </select>
+        </div>
+
+        <!-- 仮想敵プリセット -->
+        <div style="margin-bottom:14px;">
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:6px;">仮想敵を選択</label>
+            <div style="display:flex; gap:8px;">
+                <button class="preset-btn active" id="enemy-btn-guerrilla" onclick="setEnemy('guerrilla')" style="flex:1;">
+                    <span class="preset-name">軽武装ゲリラ</span>
+                    <span class="preset-desc">基礎訓練あり</span>
+                </button>
+                <button class="preset-btn" id="enemy-btn-elite" onclick="setEnemy('elite')" style="flex:1;">
+                    <span class="preset-name">エリート部隊</span>
+                    <span class="preset-desc">高度な訓練</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 仮想敵パラメータ表示 -->
+        <div id="enemy-stats-display" style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:4px; padding:8px 12px; margin-bottom:14px; font-family:monospace; font-size:0.68rem; color:#666; line-height:2;">
+        </div>
+
+        <!-- 実行ボタン -->
+        <button onclick="runCombatSim()"
+            style="width:100%; background:#1a0a00; border:1px solid #ff6600; color:#ff9933; padding:12px; border-radius:4px; font-size:0.9rem; font-weight:bold; cursor:pointer; letter-spacing:1px;">
+            ▶ SIMULATE  1,000 ENGAGEMENTS
+        </button>
+
+        <!-- 結果表示 -->
+        <div id="sim-result" style="display:none; margin-top:16px;">
+            <!-- 勝率ゲージ -->
+            <div style="text-align:center; padding:16px 0 8px;">
+                <div style="font-size:0.65rem; color:#555; letter-spacing:2px; margin-bottom:6px;">WIN PROBABILITY</div>
+                <div id="sim-win-pct" style="font-size:3rem; font-family:'Share Tech Mono',monospace; font-weight:bold; line-height:1;"></div>
+                <div id="sim-verdict" style="font-size:0.75rem; margin-top:6px; font-family:monospace;"></div>
+            </div>
+            <!-- ゲージバー -->
+            <div style="position:relative; height:22px; background:#1a1a1a; border-radius:11px; overflow:hidden; margin:8px 0 16px;">
+                <div id="sim-gauge-you"  style="position:absolute; left:0; top:0; height:100%; background:linear-gradient(90deg,#005588,#0099ff); transition:width 0.6s ease;"></div>
+                <div id="sim-gauge-enemy" style="position:absolute; right:0; top:0; height:100%; background:linear-gradient(270deg,#550000,#ff3300); transition:width 0.6s ease;"></div>
+                <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.65rem; font-family:monospace; color:rgba(255,255,255,0.5);">YOU vs ENEMY</div>
+            </div>
+            <!-- 指標比較ミニ表 -->
+            <div id="sim-metrics-table" style="font-size:0.7rem;"></div>
+            <!-- 試行数・シード -->
+            <div style="font-size:0.6rem; color:#333; text-align:right; margin-top:8px; font-family:monospace;" id="sim-footer"></div>
+        </div>
     </div>
 </div>
 
@@ -371,6 +493,7 @@ let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
 let cumulativeHits = 0, individualGroupings = [], finalStats = {};
 let animFrameId = null;
 let lastShotTime = -999;
+let currentDeadTime = 0.15; // デフォルト: ガスBB（0.15s）。実銃は0.07s
 
 // 高精度検出用バッファ
 const DETECT_BUFFER = 4;
@@ -390,6 +513,8 @@ function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     event.target.classList.add('active');
+    if (name === 'history') { renderHistory(); setTimeout(drawTrendGraph, 60); }
+    if (name === 'compare') { renderCompareSelect(); initCompareTab(); }
     if (name === 'history') renderHistory();
     if (name === 'compare') renderCompareSelect();
 }
@@ -580,7 +705,7 @@ function checkShot() {
     // 動的閾値: 直前の平均に対する急上昇を検出
     const th = parseFloat(document.getElementById('mic-sens').value);
     const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
-    const deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? 1.0 : 0.07;
+    const deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? 1.0 : currentDeadTime;
 
     if (rms > th && (now - lastShotTime) > deadTime) {
         lastShotTime = now;
@@ -899,6 +1024,18 @@ function confirmManualMarks() {
         }
     });
     generateAssessment();
+}
+
+function setDeadTime(mode) {
+    currentDeadTime = mode === 'real' ? 0.07 : 0.15;
+    document.getElementById('dt-btn-real').style.fontWeight = mode === 'real' ? 'bold' : 'normal';
+    document.getElementById('dt-btn-real').style.borderColor = mode === 'real' ? '#ffcc00' : '#444';
+    document.getElementById('dt-btn-real').style.color = mode === 'real' ? '#ffcc00' : '#888';
+    document.getElementById('dt-btn-real').textContent = mode === 'real' ? '実銃 0.07s ✓' : '実銃 0.07s';
+    document.getElementById('dt-btn-gas').style.fontWeight = mode === 'gas' ? 'bold' : 'normal';
+    document.getElementById('dt-btn-gas').style.borderColor = mode === 'gas' ? '#32d74b' : '#444';
+    document.getElementById('dt-btn-gas').style.color = mode === 'gas' ? '#32d74b' : '#888';
+    document.getElementById('dt-btn-gas').textContent = mode === 'gas' ? 'ガスBB 0.15s ✓' : 'ガスBB 0.15s';
 }
 
 function setAnalysisMode(mode) {
@@ -1329,6 +1466,278 @@ function getSessions() {
     try { return JSON.parse(localStorage.getItem('mali_sessions') || '[]'); } catch { return []; }
 }
 
+/* ═══════════════════════════════════════════
+   TREND GRAPH
+═══════════════════════════════════════════ */
+let currentTrendMetric = 'first';
+let currentTrendRange  = null; // 選択中の射距離構成文字列
+
+function setTrendMetric(metric) {
+    currentTrendMetric = metric;
+    ['first','split','group','hits'].forEach(m => {
+        const btn = document.getElementById('trend-btn-' + m);
+        if (btn) btn.classList.toggle('active', m === metric);
+    });
+    drawTrendGraph();
+}
+
+function setTrendRange(range) {
+    currentTrendRange = range;
+    // フィルタボタンのactive切り替え
+    document.querySelectorAll('#trend-range-filter button').forEach(b => {
+        b.classList.toggle('active', b.dataset.range === range);
+    });
+    drawTrendGraph();
+}
+
+function buildRangeFilter() {
+    const sessions = getSessions();
+    const filterEl = document.getElementById('trend-range-filter');
+    if (!filterEl) return;
+
+    // 射距離構成ごとにカウント
+    const counts = {};
+    sessions.forEach(s => {
+        const r = s.range || '?';
+        counts[r] = (counts[r] || 0) + 1;
+    });
+
+    const ranges = Object.keys(counts);
+    if (ranges.length === 0) { filterEl.innerHTML = ''; return; }
+
+    // デフォルト: 最多セッション数の構成を選択
+    if (!currentTrendRange || !counts[currentTrendRange]) {
+        currentTrendRange = ranges.reduce((a, b) => counts[a] >= counts[b] ? a : b);
+    }
+
+    filterEl.innerHTML = ranges.map(r => `
+        <button class="preset-btn ${r === currentTrendRange ? 'active' : ''}"
+            style="flex:none; padding:3px 8px; font-size:0.65rem;"
+            data-range="${r}" onclick="setTrendRange('${r}')">
+            <span class="preset-name" style="font-size:0.65rem;">${r}m</span>
+            <span class="preset-desc" style="font-size:0.55rem;">${counts[r]}件</span>
+        </button>
+    `).join('');
+}
+
+// グレード境界計算（goal値を基準にA/B/C/D帯を返す）
+// lowerBetter=true: goal以下=A, goal*1.1以下=B, goal*1.3以下=C, それ以上=D
+// lowerBetter=false: goal以上=A, goal*0.9以上=B, goal*0.75以上=C, それ以下=D
+function getGradeBands(goal, lowerBetter) {
+    if (goal == null) return null;
+    if (lowerBetter) {
+        return [
+            { grade: 'A', color: '#32d74b', from: 0,           to: goal         },
+            { grade: 'B', color: '#ffcc00', from: goal,         to: goal * 1.15  },
+            { grade: 'C', color: '#ff9500', from: goal * 1.15,  to: goal * 1.35  },
+            { grade: 'D', color: '#ff3b30', from: goal * 1.35,  to: Infinity     },
+        ];
+    } else {
+        return [
+            { grade: 'A', color: '#32d74b', from: goal,         to: Infinity     },
+            { grade: 'B', color: '#ffcc00', from: goal * 0.85,  to: goal         },
+            { grade: 'C', color: '#ff9500', from: goal * 0.70,  to: goal * 0.85  },
+            { grade: 'D', color: '#ff3b30', from: 0,            to: goal * 0.70  },
+        ];
+    }
+}
+
+function drawTrendGraph() {
+    buildRangeFilter();
+    const cvs = document.getElementById('trendCanvas');
+    if (!cvs) return;
+    const emptyEl = document.getElementById('trend-empty');
+
+    const allSessions = getSessions();
+    // 射距離構成フィルタ
+    const sessions = currentTrendRange
+        ? allSessions.filter(s => (s.range || '?') === currentTrendRange)
+        : allSessions;
+
+    if (sessions.length < 2) {
+        cvs.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+    }
+    cvs.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width  = (cvs.offsetWidth  || 300) * dpr;
+    cvs.height = 180 * dpr;
+    cvs.style.height = '180px';
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = cvs.offsetWidth || 300, H = 180;
+    ctx.clearRect(0, 0, W, H);
+
+    // 指標設定
+    const metricCfg = {
+        first: { label: '初弾速度 (s)',  color: '#60a0ff',
+                 get:  s => s.stats?.speed?.first?.val,
+                 goal: s => s.stats?.speed?.first?.goal,
+                 unit: 's',  lowerBetter: true },
+        split: { label: '平均連射間隔 (s)', color: '#32d74b',
+                 get:  s => s.stats?.control?.split?.val,
+                 goal: s => s.stats?.control?.split?.goal,
+                 unit: 's',  lowerBetter: true },
+        group: { label: '散布界 (cm)',   color: '#ff9500',
+                 get:  s => s.stats?.accuracy?.group?.val,
+                 goal: s => s.stats?.accuracy?.group?.goal,
+                 unit: 'cm', lowerBetter: true },
+        hits:  { label: '命中率 (%)',    color: '#ff3b30',
+                 get:  s => s.hits != null && s.shotTimes?.length
+                            ? (s.hits / s.shotTimes.length * 100) : null,
+                 goal: s => s.stats?.accuracy?.hits?.goal != null && s.shotTimes?.length
+                            ? (s.stats.accuracy.hits.goal / s.shotTimes.length * 100) : null,
+                 unit: '%',  lowerBetter: false },
+    };
+    const cfg = metricCfg[currentTrendMetric];
+
+    // 古い順に並び替え
+    const ordered = [...sessions].reverse();
+    const values  = ordered.map(s => cfg.get(s));
+    const goals   = ordered.map(s => cfg.goal ? cfg.goal(s) : null);
+
+    const validVals  = values.filter(v => v != null && !isNaN(v));
+    const validGoals = goals.filter(v => v != null && !isNaN(v));
+    if (validVals.length < 1) return;
+
+    // スケール計算
+    const allNums = [...validVals, ...validGoals];
+    const rawMin = Math.min(...allNums);
+    const rawMax = Math.max(...allNums);
+    const margin = (rawMax - rawMin) * 0.25 || rawMax * 0.2 || 0.5;
+    const minV = Math.max(0, rawMin - margin);
+    const maxV = rawMax + margin;
+    const range = maxV - minV || 1;
+
+    const pad = { l: 44, r: 16, t: 16, b: 28 };
+    const gW = W - pad.l - pad.r;
+    const gH = H - pad.t - pad.b;
+    const n = ordered.length;
+    const toY = v => pad.t + gH * (1 - (v - minV) / range);
+    const toX = i => n > 1 ? pad.l + i * gW / (n - 1) : pad.l + gW / 2;
+
+    // ── グレード帯（背景色） ──
+    const refGoal = validGoals.length ? validGoals[validGoals.length - 1] : null;
+    const bands = getGradeBands(refGoal, cfg.lowerBetter);
+    if (bands) {
+        bands.forEach(band => {
+            const yTop    = toY(Math.min(band.to === Infinity ? maxV * 1.5 : band.to, maxV));
+            const yBottom = toY(Math.max(band.from, minV));
+            const bandH   = Math.max(0, yBottom - yTop);
+            ctx.fillStyle = band.color + '18';
+            ctx.fillRect(pad.l, yTop, gW, bandH);
+        });
+        // グレードラベル（右端）
+        bands.forEach(band => {
+            const bandMid = band.to === Infinity ? maxV : (band.from + Math.min(band.to, maxV)) / 2;
+            if (bandMid < minV || bandMid > maxV) return;
+            const ly = toY(bandMid);
+            ctx.fillStyle = band.color + 'aa';
+            ctx.font = 'bold 9px monospace'; ctx.textAlign = 'right';
+            ctx.fillText(band.grade, pad.l + gW - 2, ly + 3);
+        });
+    }
+
+    // ── グリッド線 ──
+    ctx.strokeStyle = '#1c1c1c'; ctx.lineWidth = 1;
+    for (let f = 0; f <= 4; f++) {
+        const y = pad.t + gH * f / 4;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + gW, y); ctx.stroke();
+        const labelV = maxV - (range * f / 4);
+        ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(labelV.toFixed(cfg.unit === 's' ? 2 : (cfg.unit === '%' ? 0 : 1)), pad.l - 4, y + 3);
+    }
+
+    // ── 目標ライン ──
+    if (refGoal != null) {
+        const gy = toY(refGoal);
+        if (gy >= pad.t && gy <= pad.t + gH) {
+            ctx.strokeStyle = 'rgba(255,204,0,0.55)'; ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(pad.l + gW, gy); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255,204,0,0.8)'; ctx.font = '8px monospace'; ctx.textAlign = 'left';
+            ctx.fillText('GOAL', pad.l + 3, gy - 3);
+        }
+    }
+
+    // ── グラデーション塗り ──
+    const fillPts = [];
+    ordered.forEach((s, i) => {
+        const v = values[i];
+        if (v == null || isNaN(v)) return;
+        fillPts.push({ x: toX(i), y: toY(v) });
+    });
+    if (fillPts.length > 1) {
+        const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + gH);
+        grad.addColorStop(0, cfg.color + '40');
+        grad.addColorStop(1, cfg.color + '05');
+        ctx.beginPath();
+        ctx.moveTo(fillPts[0].x, pad.t + gH);
+        fillPts.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(fillPts[fillPts.length - 1].x, pad.t + gH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+
+    // ── 折れ線 ──
+    ctx.save();
+    ctx.shadowColor = cfg.color; ctx.shadowBlur = 8;
+    ctx.strokeStyle = cfg.color; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let lineStarted = false;
+    ordered.forEach((s, i) => {
+        const v = values[i];
+        if (v == null || isNaN(v)) return;
+        const x = toX(i), y = toY(v);
+        lineStarted ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        lineStarted = true;
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    // ── データ点 ──
+    ordered.forEach((s, i) => {
+        const v = values[i];
+        if (v == null || isNaN(v)) return;
+        const x = toX(i), y = toY(v);
+        const goal = goals[i];
+        const isGood = goal != null
+            ? (cfg.lowerBetter ? v <= goal * 1.15 : v >= goal * 0.85)
+            : true;
+
+        // 外枠
+        ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#000'; ctx.fill();
+        // 内側
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = isGood ? '#32d74b' : '#ff3b30'; ctx.fill();
+
+        // 値ラベル（上下交互）
+        const lY = i % 2 === 0 ? y - 9 : y + 17;
+        ctx.fillStyle = '#bbb'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(
+            v.toFixed(cfg.unit === 'cm' ? 1 : (cfg.unit === '%' ? 0 : 2)) + cfg.unit,
+            x, lY
+        );
+    });
+
+    // ── X軸ラベル（日付） ──
+    ordered.forEach((s, i) => {
+        const x = toX(i);
+        const label = s.timestamp ? s.timestamp.slice(5, 10) : '#' + (i + 1);
+        ctx.fillStyle = '#555'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(label, x, H - 5);
+    });
+
+    // ── グラフタイトル ──
+    ctx.fillStyle = cfg.color; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(cfg.label, pad.l, 11);
+}
 function renderHistory() {
     const sessions = getSessions();
     const el = document.getElementById('history-list');
@@ -1427,6 +1836,198 @@ function renderCompareTable() {
         return `<tr><td>${label}</td>${cells}</tr>`;
     }).join('');
     tbl.innerHTML = `<table class="compare-table"><thead>${header}</thead><tbody>${body}</tbody></table>`;
+}
+
+/* ═══════════════════════════════════════════
+   COMBAT SIMULATION  (Monte Carlo)
+═══════════════════════════════════════════ */
+let currentEnemy = 'guerrilla';
+
+// 仮想敵プリセット定義
+// mean: 平均値、 sd: 標準偏差（正規分布のばらつき）
+const ENEMY_PRESETS = {
+    guerrilla: {
+        label:  '軽武装ゲリラ',
+        desc:   '基礎訓練あり・非正規兵',
+        color:  '#ff9500',
+        first:  { mean: 2.5,  sd: 0.60 },   // 初弾速度 (s)
+        split:  { mean: 1.20, sd: 0.30 },   // 連射間隔 (s)
+        hitRate:{ mean: 0.55, sd: 0.15 },   // 命中率 0〜1
+    },
+    elite: {
+        label:  'エリート部隊',
+        desc:   '高度な訓練・特殊部隊レベル',
+        color:  '#ff3b30',
+        first:  { mean: 1.0,  sd: 0.20 },
+        split:  { mean: 0.45, sd: 0.10 },
+        hitRate:{ mean: 0.90, sd: 0.05 },
+    },
+};
+
+// Box-Muller 変換で正規分布乱数生成
+function randNormal(mean, sd) {
+    let u, v;
+    do { u = Math.random(); } while (u === 0);
+    do { v = Math.random(); } while (v === 0);
+    return mean + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function setEnemy(key) {
+    currentEnemy = key;
+    ['guerrilla','elite'].forEach(k => {
+        document.getElementById('enemy-btn-' + k).classList.toggle('active', k === key);
+    });
+    updateEnemyStatsDisplay();
+}
+
+function updateEnemyStatsDisplay() {
+    const e = ENEMY_PRESETS[currentEnemy];
+    const el = document.getElementById('enemy-stats-display');
+    if (!el || !e) return;
+    el.innerHTML =
+        '<span style="color:#888;">' + e.label + '</span> — ' + e.desc + '<br>' +
+        '初弾速度: <strong style="color:#ddd;">' + e.first.mean.toFixed(2) + 's</strong> ±' + e.first.sd.toFixed(2) + 's　' +
+        '命中率: <strong style="color:#ddd;">' + Math.round(e.hitRate.mean * 100) + '%</strong> ±' + Math.round(e.hitRate.sd * 100) + '%　' +
+        '連射間隔: <strong style="color:#ddd;">' + e.split.mean.toFixed(2) + 's</strong> ±' + e.split.sd.toFixed(2) + 's';
+}
+
+function populateSimSessionSelect() {
+    const sel = document.getElementById('sim-session-select');
+    if (!sel) return;
+    const sessions = getSessions();
+    sel.innerHTML = '<option value="">-- セッションを選択 --</option>' +
+        sessions.map(s =>
+            '<option value="' + s.id + '">' +
+            s.shooter + '  ' + s.timestamp.slice(0,10) +
+            '  初弾:' + (s.stats?.speed?.first?.val?.toFixed(2)||'--') + 's' +
+            '  命中:' + (s.hits||0) + '発' +
+            '</option>'
+        ).join('');
+}
+
+function runCombatSim() {
+    const selEl = document.getElementById('sim-session-select');
+    const sessionId = selEl ? parseInt(selEl.value) : NaN;
+    if (!sessionId) { alert('自分のセッションを選択してください。'); return; }
+
+    const session = getSessions().find(s => s.id === sessionId);
+    if (!session) { alert('セッションが見つかりません。'); return; }
+
+    const enemy = ENEMY_PRESETS[currentEnemy];
+    const TRIALS = 1000;
+
+    // 自分の実測値
+    const myFirst   = session.stats?.speed?.first?.val   || 9.9;
+    const myHitRate = session.hits / (session.shotTimes?.length || 1);
+    const mySplit   = session.stats?.control?.split?.val || 9.9;
+
+    // 自分のばらつき（実績の15%をSDとして使用）
+    const mySdFirst   = myFirst   * 0.12;
+    const mySdHit     = Math.min(myHitRate * 0.15, 0.10);
+    const mySdSplit   = mySplit   * 0.12;
+
+    let wins = 0, losses = 0, draws = 0;
+    const myScores = [], enemyScores = [];
+
+    for (let t = 0; t < TRIALS; t++) {
+        // 各試行でばらつきを加味したパラメータをサンプリング
+        const mF  = clamp(randNormal(myFirst,   mySdFirst),  0.1, 20);
+        const mH  = clamp(randNormal(myHitRate, mySdHit),    0.0,  1);
+
+        const eF  = clamp(randNormal(enemy.first.mean,   enemy.first.sd),   0.1, 20);
+        const eH  = clamp(randNormal(enemy.hitRate.mean, enemy.hitRate.sd),  0.0,  1);
+
+        // スコア = 命中率 / 初弾速度（高い方が先に有効弾）
+        const myScore    = mH / mF;
+        const enemyScore = eH / eF;
+
+        myScores.push(myScore);
+        enemyScores.push(enemyScore);
+
+        const diff = myScore - enemyScore;
+        if (diff > 0.001)       wins++;
+        else if (diff < -0.001) losses++;
+        else                    draws++;
+    }
+
+    const winPct   = (wins   / TRIALS * 100).toFixed(1);
+    const lossPct  = (losses / TRIALS * 100).toFixed(1);
+    const drawPct  = (draws  / TRIALS * 100).toFixed(1);
+
+    // 平均スコア
+    const avgMyScore    = myScores.reduce((a,b)=>a+b,0) / TRIALS;
+    const avgEnemyScore = enemyScores.reduce((a,b)=>a+b,0) / TRIALS;
+
+    displaySimResult({
+        winPct, lossPct, drawPct, wins, losses, draws,
+        avgMyScore, avgEnemyScore, enemy,
+        myFirst, myHitRate, mySplit,
+        session, TRIALS
+    });
+}
+
+function displaySimResult(r) {
+    const el = document.getElementById('sim-result');
+    el.style.display = 'block';
+
+    const winN = parseFloat(r.winPct);
+
+    // 勝率テキスト + 色
+    const pctEl = document.getElementById('sim-win-pct');
+    pctEl.textContent = r.winPct + '%';
+    pctEl.style.color = winN >= 70 ? '#32d74b' : winN >= 50 ? '#ffcc00' : winN >= 30 ? '#ff9500' : '#ff3b30';
+
+    // バーディクト
+    const verdicts = [
+        [80, '🟢 DOMINANT  圧倒的優位'],
+        [65, '🟡 FAVORABLE  有利'],
+        [50, '🟠 CONTESTED  拮抗'],
+        [35, '🔴 DISADVANTAGED  不利'],
+        [ 0, '💀 CRITICAL  危険域'],
+    ];
+    const verdict = verdicts.find(([thr]) => winN >= thr);
+    const verdEl = document.getElementById('sim-verdict');
+    verdEl.textContent = verdict ? verdict[1] : '';
+    verdEl.style.color = pctEl.style.color;
+
+    // ゲージバー
+    const totalW = parseFloat(r.winPct) + parseFloat(r.lossPct);
+    document.getElementById('sim-gauge-you').style.width   = r.winPct  + '%';
+    document.getElementById('sim-gauge-enemy').style.width = r.lossPct + '%';
+
+    // 指標比較ミニ表
+    const hitPct = (r.myHitRate * 100).toFixed(0);
+    const eHitPct = (r.enemy.hitRate.mean * 100).toFixed(0);
+    const youBetter = (label, mine, theirs, lowerBetter) => {
+        const good = lowerBetter ? mine <= theirs : mine >= theirs;
+        return '<tr>' +
+            '<td style="color:#666; padding:4px 0;">' + label + '</td>' +
+            '<td style="text-align:right; padding:4px 6px; color:' + (good?'#32d74b':'#ff3b30') + '; font-family:monospace;">' + mine + '</td>' +
+            '<td style="text-align:center; color:#333; font-size:0.7rem;">vs</td>' +
+            '<td style="text-align:left; padding:4px 6px; color:' + (!good?'#32d74b':'#ff3b30') + '; font-family:monospace;">' + theirs + '</td>' +
+            '</tr>';
+    };
+    document.getElementById('sim-metrics-table').innerHTML =
+        '<table style="width:100%; border-collapse:collapse; font-size:0.72rem;">' +
+        '<tr><th style="color:#444; font-size:0.6rem; padding:4px 0; text-align:left;">指標</th>' +
+        '<th style="color:#0099ff; font-size:0.6rem; padding:4px 6px; text-align:right;">YOU</th>' +
+        '<th></th>' +
+        '<th style="color:' + r.enemy.color + '; font-size:0.6rem; padding:4px 6px; text-align:left;">' + r.enemy.label.split('（')[0] + '</th></tr>' +
+        youBetter('初弾速度', r.myFirst.toFixed(2)+'s', r.enemy.first.mean.toFixed(2)+'s', true) +
+        youBetter('命中率',   hitPct+'%',               eHitPct+'%',                       false) +
+        youBetter('連射間隔', r.mySplit.toFixed(2)+'s', r.enemy.split.mean.toFixed(2)+'s', true) +
+        '</table>';
+
+    document.getElementById('sim-footer').textContent =
+        'n=' + r.TRIALS + ' trials  |  WIN:' + r.wins + '  LOSS:' + r.losses + '  DRAW:' + r.draws;
+}
+
+// Compare タブ初期化
+function initCompareTab() {
+    populateSimSessionSelect();
+    updateEnemyStatsDisplay();
 }
 
 /* ═══════════════════════════════════════════
