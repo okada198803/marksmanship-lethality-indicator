@@ -211,8 +211,8 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver47</h1>
-    <div class="app-subtitle">TACTICAL ANALYTICS SYSTEM</div>
+    <h1 class="app-title-main">MaLI ver55</h1>
+    <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
 <div class="tab-bar">
@@ -2055,7 +2055,7 @@ function exportFullCSV() {
     const csv = "\uFEFF" + headers.join(",") + "\n" + row.join(",");
     const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = `MaLI_Report_${shooter}.csv`; a.click();
+    a.href = URL.createObjectURL(blob); a.download = `MaLI_v55_Report_${shooter}.csv`; a.click();
 }
 
 /* ═══════════════════════════════════════════
