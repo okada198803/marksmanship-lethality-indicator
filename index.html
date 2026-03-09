@@ -285,6 +285,14 @@
                 実銃: ボルト誤検知なし（0.07s） / ガスBB: ブローバック2重カウント防止（0.15s）
             </span>
         </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
+            <label style="margin:0; white-space:nowrap; font-size:0.7rem;">リロード不感時間: <span id="reload-dead-val">2.0</span>s</label>
+            <input type="range" id="reload-dead-time" min="0.5" max="5.0" step="0.5" value="2.0" style="flex:1;"
+                   oninput="document.getElementById('reload-dead-val').innerText=parseFloat(this.value).toFixed(1)">
+            <span style="font-size:0.62rem; color:#555; flex-basis:100%;">
+                リロード直後の誤検知防止。リロード動作中に反応する場合は値を大きくしてください（推奨 2.0〜4.0s）
+            </span>
+        </div>
         <canvas id="viz"></canvas>
     </div>
     <div id="timer-val">0.00</div>
@@ -353,8 +361,11 @@
             </div>
         </div>
     </div>
-    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()">写真を一括アップロード</button>
-    <input type="file" id="file-input" accept="image/*" multiple style="display:none" onchange="processMultipleImages(this)">
+    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()">写真をアップロード（手動マーク）</button>
+    <button class="upload-btn" id="upload-add-btn" onclick="document.getElementById('file-input-add').click()"
+        style="display:none; background:#111; border-color:#555; color:#888; margin-top:4px; font-size:0.8rem;">＋ 写真を追加アップロード</button>
+    <input type="file" id="file-input"     accept="image/jpeg,image/png,image/heic,image/heif,image/*" multiple style="display:none" onchange="processMultipleImages(this, false)">
+    <input type="file" id="file-input-add" accept="image/jpeg,image/png,image/heic,image/heif,image/*" multiple style="display:none" onchange="processMultipleImages(this, true)">
     <div id="canvas-list"></div>
 </div>
 
@@ -705,7 +716,8 @@ function checkShot() {
     // 動的閾値: 直前の平均に対する急上昇を検出
     const th = parseFloat(document.getElementById('mic-sens').value);
     const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
-    const deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? 1.0 : currentDeadTime;
+    const reloadDeadTime = parseFloat(document.getElementById('reload-dead-time').value);
+    const deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? reloadDeadTime : currentDeadTime;
 
     if (rms > th && (now - lastShotTime) > deadTime) {
         lastShotTime = now;
@@ -1045,15 +1057,20 @@ function setAnalysisMode(mode) {
     document.getElementById('mode-panel-seal').style.display   = mode === 'seal'   ? 'block' : 'none';
     document.getElementById('mode-panel-manual').style.display = mode === 'manual' ? 'block' : 'none';
     const labels = { seal: '写真をアップロード（シール検出）', manual: '写真をアップロード（手動マーク）' };
+    document.getElementById('upload-add-btn').style.display = 'none';
     document.getElementById('upload-btn').textContent = labels[mode] || '写真を一括アップロード';
 }
 
-async function processMultipleImages(input) {
+async function processMultipleImages(input, append = false) {
     const files = Array.from(input.files);
     const container = document.getElementById('canvas-list');
-    container.innerHTML = "";
-    cumulativeHits = 0; individualGroupings = [];
-    manualSessions = [];  // 手動モード用: 各ターゲットのセッション情報
+    if (!append) {
+        container.innerHTML = "";
+        cumulativeHits = 0; individualGroupings = [];
+        manualSessions = [];
+    }
+    // 追加アップロードボタンを表示
+    document.getElementById('upload-add-btn').style.display = 'block';
 
     for (let i = 0; i < files.length; i++) {
         const rangeM = getRangeArray()[i] || 10;
@@ -1224,23 +1241,53 @@ function generateAssessment() {
         reloadAt: parseInt(document.getElementById('cfg-reload-at').value)
     };
     const firstShot = shotTimes[0] || 0;
+
+    // リロード時間: リロード直前の最後の発射 → リロード後の最初の発射 までの時間
+    // shotTimes[reloadAt-1] = MAG1最終弾, shotTimes[reloadAt] = MAG2初弾
+    // リロード所要時間 = (MAG2初弾 - MAG1最終弾) - 目標初弾速度
+    // 例: MAG1最終弾1s, MAG2初弾5s, 目標初弾2s → 5-1-2 = 2s
+    const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt] != null)
+        ? Math.max(0, (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt - 1]) - cfg.first)
+        : 0;
+
+    // 連射間隔: 以下を除外して純粋な連射速度のみ計算
+    //   i=0        → 初弾（スタートからの時間、splitsに含めない）
+    //   i=reloadAt → リロード時間（reloadTimeで別途計測）
+    //   i=reloadAt+1 → リロード後の初弾（問題3: cfg.firstと同様に評価）
     let splits = [];
     for (let i = 1; i < shotTimes.length; i++) {
-        if (cfg.reloadAt > 0 && i === cfg.reloadAt) continue;
-        splits.push(shotTimes[i] - shotTimes[i-1]);
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt)     continue; // リロード区間
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt + 1) continue; // リロード後の初弾
+        splits.push(shotTimes[i] - shotTimes[i - 1]);
     }
-    const avgSplit = splits.length > 0 ? splits.reduce((a,b)=>a+b,0)/splits.length : 0;
-    const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt]) ? (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt-1]) : 0;
-    const totalTime = shotTimes[shotTimes.length-1] || 0;
+    const avgSplit = splits.length > 0 ? splits.reduce((a, b) => a + b, 0) / splits.length : 0;
+
+    // リロード後の初弾速度（問題3: cfg.firstと同じ基準で評価）
+    const reloadFirstShot = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt + 1] != null && shotTimes[cfg.reloadAt] != null)
+        ? (shotTimes[cfg.reloadAt + 1] - shotTimes[cfg.reloadAt])
+        : null;
+
+    const totalTime = shotTimes[shotTimes.length - 1] || 0;
     const maxGrp = Math.max(...individualGroupings, 0);
-    const expectedTotal = cfg.first + cfg.split*(cfg.totalShots-1) + (cfg.reloadAt>0 ? cfg.reload : 0);
+
+    // 期待総時間: 初弾 + MAG1連射 + リロード + リロード後初弾 + MAG2連射
+    const mag1Splits = cfg.reloadAt > 1 ? cfg.reloadAt - 1 : 0;
+    const mag2Shots  = cfg.reloadAt > 0 ? cfg.totalShots - cfg.reloadAt - 1 : cfg.totalShots - 1;
+    const expectedTotal = cfg.reloadAt > 0
+        ? cfg.first + cfg.split * mag1Splits + cfg.reload + cfg.first + cfg.split * mag2Shots
+        : cfg.first + cfg.split * (cfg.totalShots - 1);
 
     finalStats = {
         accuracy: {
             hits:  { val: cumulativeHits, goal: cfg.targetHits, grade: getGrade(cumulativeHits, cfg.targetHits, false) },
             group: { val: maxGrp,         goal: cfg.group,      grade: getGrade(maxGrp, cfg.group, true) }
         },
-        speed:   { first:  { val: firstShot, goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) } },
+        speed: {
+            first:       { val: firstShot,   goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) },
+            reloadFirst: reloadFirstShot != null
+                ? { val: reloadFirstShot, goal: cfg.first, grade: getGrade(reloadFirstShot, cfg.first, true) }
+                : null
+        },
         control: {
             split:  { val: avgSplit,   goal: cfg.split,  grade: getGrade(avgSplit, cfg.split, true) },
             reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' }
@@ -1268,12 +1315,13 @@ function generateAssessment() {
             </div>
             <div class="eval-group">
                 <span class="eval-group-title">【速度 / Speed】</span>
-                ${createDetailRow("初弾反応速度", finalStats.speed.first, "s")}
+                ${createDetailRow("初弾反応速度 (MAG1)", finalStats.speed.first, "s")}
+                ${cfg.reloadAt > 0 && finalStats.speed.reloadFirst ? createDetailRow("初弾反応速度 (MAG2)", finalStats.speed.reloadFirst, "s") : ""}
             </div>
             <div class="eval-group">
                 <span class="eval-group-title">【制御 / Control】</span>
                 ${createDetailRow("平均連射間隔", finalStats.control.split, "s")}
-                ${cfg.reloadAt > 0 ? createDetailRow("リロード所要時間", finalStats.control.reload, "s") : ""}
+                ${cfg.reloadAt > 0 ? createDetailRow("リロード所要時間 ※(MAG2初弾-MAG1最終弾)-目標初弾速度", finalStats.control.reload, "s") : ""}
             </div>
             <div class="eval-group">
                 <span class="eval-group-title">【暴露 / Exposure】</span>
