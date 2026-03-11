@@ -247,7 +247,7 @@
         <div style="grid-column: span 2;"><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
         <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5" oninput="onShotCountChange()"></div>
         <div><label>目標命中数 (Goal)</label><input type="number" id="cfg-target-hits" value="5"></div>
-        <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="90"></div>
+        <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="100"></div>
         <div><label>目標散布界 (cm)</label><input type="number" id="cfg-target-grouping" value="15.0"></div>
         <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
         <div><label>目標間隔 (s)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
@@ -541,14 +541,14 @@ function updateSensitivityLabel(v) {
 const PRESETS = {
     close: {
         label: '至近距離',
-        totalShots: 5, targetHits: 4, targetHeight: 120,
+        totalShots: 5, targetHits: 4, targetHeight: 100,
         targetGrouping: 40, targetFirst: 0.5, targetSplit: 0.5,
         targetReload: 3.5, reloadAt: 3,
         defaultRanges: [15, 15, 15, 15, 15]
     },
     multi: {
         label: '複数距離',
-        totalShots: 10, targetHits: 5, targetHeight: 120,
+        totalShots: 10, targetHits: 5, targetHeight: 100,
         targetGrouping: 80, targetFirst: 2.5, targetSplit: 2.5,
         targetReload: 3.5, reloadAt: 6,
         defaultRanges: [300, 300, 300, 200, 200, 200, 100, 100, 100, 100]
@@ -1373,11 +1373,34 @@ function drawRadar() {
     }
 
     const labels = ["精度","速度","制御","暴露"];
-    const gradeKeys = [
-        finalStats.accuracy.hits.grade, finalStats.speed.first.grade,
-        finalStats.control.split.grade, finalStats.exposure.total.grade
+    // グレード → 数値変換
+    const gradeToScore = g => ({ 'A':1.0, 'B':0.75, 'C':0.5, 'D':0.25 }[g] || 0.25);
+    const avgGrade = scores => {
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        if (avg >= 0.875) return 'A';
+        if (avg >= 0.625) return 'B';
+        if (avg >= 0.375) return 'C';
+        return 'D';
+    };
+
+    // 各軸: 複数項目がある場合はスコア平均 → グレード再判定
+    const axisScores = [
+        // 精度: 命中数 + 散布界 の平均
+        [gradeToScore(finalStats.accuracy.hits.grade), gradeToScore(finalStats.accuracy.group.grade)],
+        // 速度: MAG1初弾 (+ MAG2初弾があれば平均)
+        finalStats.speed.reloadFirst
+            ? [gradeToScore(finalStats.speed.first.grade), gradeToScore(finalStats.speed.reloadFirst.grade)]
+            : [gradeToScore(finalStats.speed.first.grade)],
+        // 制御: 連射間隔 (リロードありの場合は平均)
+        (finalStats.control.reload && finalStats.control.reload.val > 0)
+            ? [gradeToScore(finalStats.control.split.grade), gradeToScore(finalStats.control.reload.grade)]
+            : [gradeToScore(finalStats.control.split.grade)],
+        // 暴露: 総暴露時間のみ
+        [gradeToScore(finalStats.exposure.total.grade)],
     ];
-    const scores = gradeKeys.map(g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g] || 0.25));
+
+    const scores = axisScores.map(arr => arr.reduce((a, b) => a + b, 0) / arr.length);
+    const gradeKeys = axisScores.map(arr => avgGrade(arr));
 
     // 塗りつぶし
     ctx.fillStyle = "rgba(255,204,0,0.15)"; ctx.strokeStyle = "rgba(255,204,0,0.8)"; ctx.lineWidth = 2;
