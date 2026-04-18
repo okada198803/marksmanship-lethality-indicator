@@ -216,8 +216,9 @@
 </header>
 
 <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchTab('session')">SESSION</button>
+    <button class="tab-btn active"  onclick="switchTab('session')">SESSION</button>
     <button class="tab-btn" onclick="switchTab('history')">HISTORY</button>
+    <button class="tab-btn" onclick="switchTab('assessment')">ASSESSMENT</button>
     <button class="tab-btn" onclick="switchTab('compare')">COMPARE</button>
 </div>
 
@@ -228,16 +229,20 @@
     <h2>1. Scenario Config</h2>
 
     <!-- プリセット選択 -->
-    <div class="preset-bar" id="scenario-preset-bar">
-        <button class="preset-btn" id="preset-btn-close" onclick="applyPreset('close')">
-            <span class="preset-name">至近距離</span>
-            <span class="preset-desc">5発 / CQB想定</span>
+    <div class="preset-bar" id="scenario-preset-bar" style="flex-wrap:wrap;">
+        <button class="preset-btn" id="preset-btn-posture" onclick="applyPreset('posture')" style="flex:1; min-width:80px;">
+            <span class="preset-name" style="font-size:0.72rem;">至近（姿勢変換）</span>
+            <span class="preset-desc">10発 / 3目標 / 25m</span>
         </button>
-        <button class="preset-btn" id="preset-btn-multi" onclick="applyPreset('multi')">
-            <span class="preset-name">複数距離</span>
-            <span class="preset-desc">10発 / 多目標想定</span>
+        <button class="preset-btn" id="preset-btn-suppress_day" onclick="applyPreset('suppress_day')" style="flex:1; min-width:80px;">
+            <span class="preset-name" style="font-size:0.72rem;">制圧致命（昼間）</span>
+            <span class="preset-desc">5発 / 1目標 / 10m</span>
         </button>
-        <button class="preset-btn" id="preset-btn-custom" onclick="applyPreset('custom')">
+        <button class="preset-btn" id="preset-btn-suppress_night" onclick="applyPreset('suppress_night')" style="flex:1; min-width:80px;">
+            <span class="preset-name" style="font-size:0.72rem;">制圧致命（夜間）</span>
+            <span class="preset-desc">5発 / 1目標 / 10m</span>
+        </button>
+        <button class="preset-btn" id="preset-btn-custom" onclick="applyPreset('custom')" style="flex:1; min-width:60px;">
             <span class="preset-name">カスタム</span>
             <span class="preset-desc">手動設定</span>
         </button>
@@ -422,6 +427,27 @@
     </div>
 </div>
 
+<!-- ===== ASSESSMENT TAB ===== -->
+<div id="tab-assessment" class="tab-pane">
+    <div class="card">
+        <h2>⚔️ 3射撃要領 総合評価</h2>
+        <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.7;">
+            各射手の3シナリオ（至近射撃・制圧致命昼間・制圧致命夜間）の結果を集計し、評価する指標のみを均等荷重で総合グレードを算出します。<br>
+            セッションを保存後、ここに自動反映されます。
+        </div>
+        <!-- 射手セレクタ -->
+        <div style="margin-bottom:14px;">
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:5px;">射手を選択</label>
+            <div id="assess-shooter-btns" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+        </div>
+        <div id="assess-body">
+            <div style="color:#333; font-size:0.75rem; font-family:monospace; padding:20px 0; text-align:center;">
+                3シナリオのセッションを保存してください
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ===== COMPARE TAB ===== -->
 <div id="tab-compare" class="tab-pane">
 
@@ -436,36 +462,37 @@
     <div class="card">
         <h2>⚔️ Combat Simulation</h2>
         <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.6;">
-            モンテカルロ法（1,000試行）で自分のセッション実績と仮想敵の能力値を比較し、交戦勝率を算出します。<br>
-            勝敗判定: <strong style="color:#aaa;">命中率 ÷ 初弾速度</strong>（高い方が制圧に成功）
+            モンテカルロ法（1,000試行）。セッションの種類に応じて比較する指標を自動選択します。<br>
+            勝敗判定: <strong style="color:#aaa;">速度・精度・制御・暴露・適応</strong> の利用可能指標を均等荷重でスコア化
         </div>
 
-        <!-- セッション選択 -->
+        <!-- セッション/Assessment選択 -->
         <div style="margin-bottom:12px;">
-            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:5px;">自分のセッションを選択</label>
-            <select id="sim-session-select"
-                style="width:100%; background:#1a1a1a; border:1px solid #333; color:#eee; padding:8px; border-radius:4px; font-family:monospace; font-size:0.8rem;">
-                <option value="">-- セッションを選択 --</option>
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:5px;">自分のデータを選択</label>
+            <select id="sim-session-select" onchange="onSimSessionChange()"
+                style="width:100%; background:#1a1a1a; border:1px solid #333; color:#eee; padding:8px; border-radius:4px; font-family:monospace; font-size:0.75rem;">
+                <option value="">-- セッション / 総合評価を選択 --</option>
             </select>
+            <div id="sim-selected-metrics" style="font-size:0.65rem; color:#444; font-family:monospace; margin-top:4px;"></div>
         </div>
 
         <!-- 仮想敵プリセット -->
-        <div style="margin-bottom:14px;">
+        <div style="margin-bottom:10px;">
             <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:6px;">仮想敵を選択</label>
-            <div style="display:flex; gap:8px;">
-                <button class="preset-btn active" id="enemy-btn-guerrilla" onclick="setEnemy('guerrilla')" style="flex:1;">
-                    <span class="preset-name">軽武装ゲリラ</span>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="preset-btn active" id="enemy-btn-guerrilla" onclick="setEnemy('guerrilla')" style="flex:1; min-width:80px;">
+                    <span class="preset-name" style="font-size:0.72rem;">軽武装ゲリラ</span>
                     <span class="preset-desc">基礎訓練あり</span>
                 </button>
-                <button class="preset-btn" id="enemy-btn-elite" onclick="setEnemy('elite')" style="flex:1;">
-                    <span class="preset-name">エリート部隊</span>
-                    <span class="preset-desc">高度な訓練</span>
+                <button class="preset-btn" id="enemy-btn-elite" onclick="setEnemy('elite')" style="flex:1; min-width:80px;">
+                    <span class="preset-name" style="font-size:0.72rem;">エリート部隊</span>
+                    <span class="preset-desc">特殊部隊レベル</span>
                 </button>
             </div>
         </div>
 
-        <!-- 仮想敵パラメータ表示 -->
-        <div id="enemy-stats-display" style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:4px; padding:8px 12px; margin-bottom:14px; font-family:monospace; font-size:0.68rem; color:#666; line-height:2;">
+        <!-- 仮想敵5指標パラメータ表示 -->
+        <div id="enemy-stats-display" style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:4px; padding:8px 12px; margin-bottom:14px; font-family:monospace; font-size:0.65rem; color:#555; line-height:2.2;">
         </div>
 
         <!-- 実行ボタン -->
@@ -476,21 +503,17 @@
 
         <!-- 結果表示 -->
         <div id="sim-result" style="display:none; margin-top:16px;">
-            <!-- 勝率ゲージ -->
             <div style="text-align:center; padding:16px 0 8px;">
                 <div style="font-size:0.65rem; color:#555; letter-spacing:2px; margin-bottom:6px;">WIN PROBABILITY</div>
                 <div id="sim-win-pct" style="font-size:3rem; font-family:'Share Tech Mono',monospace; font-weight:bold; line-height:1;"></div>
                 <div id="sim-verdict" style="font-size:0.75rem; margin-top:6px; font-family:monospace;"></div>
             </div>
-            <!-- ゲージバー -->
             <div style="position:relative; height:22px; background:#1a1a1a; border-radius:11px; overflow:hidden; margin:8px 0 16px;">
                 <div id="sim-gauge-you"  style="position:absolute; left:0; top:0; height:100%; background:linear-gradient(90deg,#005588,#0099ff); transition:width 0.6s ease;"></div>
                 <div id="sim-gauge-enemy" style="position:absolute; right:0; top:0; height:100%; background:linear-gradient(270deg,#550000,#ff3300); transition:width 0.6s ease;"></div>
                 <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.65rem; font-family:monospace; color:rgba(255,255,255,0.5);">YOU vs ENEMY</div>
             </div>
-            <!-- 指標比較ミニ表 -->
             <div id="sim-metrics-table" style="font-size:0.7rem;"></div>
-            <!-- 試行数・シード -->
             <div style="font-size:0.6rem; color:#333; text-align:right; margin-top:8px; font-family:monospace;" id="sim-footer"></div>
         </div>
     </div>
@@ -524,10 +547,9 @@ function switchTab(name) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     event.target.classList.add('active');
-    if (name === 'history') { renderHistory(); setTimeout(drawTrendGraph, 60); }
-    if (name === 'compare') { renderCompareSelect(); initCompareTab(); }
-    if (name === 'history') renderHistory();
-    if (name === 'compare') renderCompareSelect();
+    if (name === 'history')    { renderHistory(); setTimeout(drawTrendGraph, 60); }
+    if (name === 'assessment') { renderAssessment(); }
+    if (name === 'compare')    { renderCompareSelect(); initCompareTab(); }
 }
 
 function updateSensitivityLabel(v) {
@@ -539,19 +561,61 @@ function updateSensitivityLabel(v) {
    PRESETS & TARGET RANGE CONFIG
 ═══════════════════════════════════════════ */
 const PRESETS = {
-    close: {
-        label: '至近距離',
-        totalShots: 5, targetHits: 4, targetHeight: 100,
-        targetGrouping: 40, targetFirst: 0.5, targetSplit: 0.5,
-        targetReload: 3.5, reloadAt: 3,
-        defaultRanges: [15, 15, 15, 15, 15]
+    // ── 至近射撃（姿勢変換）──
+    // 目標1:4発, 目標2:3発, 目標3:3発 / 全て25m / 7発目でリロード
+    // 速度:射撃間隔+合計時間 / 精度:命中数+散布界 / 制御:弾倉交換時間 / 暴露:チェックリスト
+    posture: {
+        label: '至近射撃（姿勢変換）',
+        scenarioType: 'posture',
+        totalShots: 10, targetHits: 8, targetHeight: 100,
+        targetGrouping: 20, targetFirst: 1.0, targetSplit: 2.0,
+        targetReload: 4.0, reloadAt: 7,
+        defaultRanges: [25,25,25,25,25,25,25,25,25,25],
+        // シナリオ固有設定
+        targetGroups: [
+            { label: '目標1', shots: 4, goalHits: 2, goalGroup: 20 },
+            { label: '目標2', shots: 3, goalHits: 2, goalGroup: 20 },
+            { label: '目標3', shots: 3, goalHits: 2, goalGroup: 20 },
+        ],
+        evalAxes: { speed: true, accuracy: true, control: 'reload', exposure: 'checklist', adapt: false },
+        goalTotalTime: 30.0,
+        goalSplit: 2.0,
+        goalExposureCount: 1,  // 暴露許容回数
     },
-    multi: {
-        label: '複数距離',
-        totalShots: 10, targetHits: 5, targetHeight: 100,
-        targetGrouping: 80, targetFirst: 2.5, targetSplit: 2.5,
-        targetReload: 3.5, reloadAt: 6,
-        defaultRanges: [300, 300, 300, 200, 200, 200, 100, 100, 100, 100]
+    // ── 制圧致命射撃（昼間）──
+    // 目標1:5発 / 10m / リロードなし
+    // 速度:射撃間隔+合計時間 / 精度:命中数+散布界 / 制御:5発目頭部命中チェック / 暴露:なし / 適応:なし
+    suppress_day: {
+        label: '制圧致命射撃（昼間）',
+        scenarioType: 'suppress_day',
+        totalShots: 5, targetHits: 3, targetHeight: 100,
+        targetGrouping: 10, targetFirst: 1.0, targetSplit: 0.8,
+        targetReload: 0, reloadAt: 0,
+        defaultRanges: [10,10,10,10,10],
+        targetGroups: [
+            { label: '目標1', shots: 5, goalHits: 3, goalGroup: 10 },
+        ],
+        evalAxes: { speed: true, accuracy: true, control: 'headshot', exposure: false, adapt: false },
+        goalTotalTime: 5.0,
+        goalSplit: 0.8,
+    },
+    // ── 制圧致命射撃（夜間）──
+    // 目標1:5発 / 10m / リロードなし
+    // 速度:射撃間隔+合計時間 / 精度:命中数+散布界 / 制御:5発目頭部命中チェック / 暴露:なし / 適応:昼間比
+    suppress_night: {
+        label: '制圧致命射撃（夜間）',
+        scenarioType: 'suppress_night',
+        totalShots: 5, targetHits: 3, targetHeight: 100,
+        targetGrouping: 15, targetFirst: 1.5, targetSplit: 1.5,
+        targetReload: 0, reloadAt: 0,
+        defaultRanges: [10,10,10,10,10],
+        targetGroups: [
+            { label: '目標1', shots: 5, goalHits: 3, goalGroup: 15 },
+        ],
+        evalAxes: { speed: true, accuracy: true, control: 'headshot', exposure: false, adapt: 'vs_day' },
+        goalTotalTime: 8.0,
+        goalSplit: 1.5,
+        adaptDegradationLimit: 0.20,  // 昼間からの悪化許容率20%
     },
     custom: null
 };
@@ -566,14 +630,14 @@ function applyPreset(key) {
     if (key === 'custom') { buildTargetRangeList(); return; }
 
     const p = PRESETS[key];
-    document.getElementById('cfg-total-shots').value  = p.totalShots;
-    document.getElementById('cfg-target-hits').value   = p.targetHits;
-    document.getElementById('cfg-target-height').value = p.targetHeight;
+    document.getElementById('cfg-total-shots').value    = p.totalShots;
+    document.getElementById('cfg-target-hits').value    = p.targetHits;
+    document.getElementById('cfg-target-height').value  = p.targetHeight;
     document.getElementById('cfg-target-grouping').value = p.targetGrouping;
-    document.getElementById('cfg-target-first').value  = p.targetFirst;
-    document.getElementById('cfg-target-split').value  = p.targetSplit;
-    document.getElementById('cfg-target-reload').value = p.targetReload;
-    document.getElementById('cfg-reload-at').value     = p.reloadAt;
+    document.getElementById('cfg-target-first').value   = p.targetFirst;
+    document.getElementById('cfg-target-split').value   = p.targetSplit;
+    document.getElementById('cfg-target-reload').value  = p.targetReload || 0;
+    document.getElementById('cfg-reload-at').value      = p.reloadAt || 0;
     buildTargetRangeList(p.defaultRanges);
 }
 
@@ -1231,51 +1295,42 @@ function getGrade(actual, goal, isLowerBetter = true) {
 function generateAssessment() {
     const area = document.getElementById('assessment-area');
     area.innerHTML = ""; area.style.display = 'block';
+
+    const preset = PRESETS[currentPreset] || null;
     const cfg = {
         totalShots: parseInt(document.getElementById('cfg-total-shots').value),
         targetHits: parseInt(document.getElementById('cfg-target-hits').value),
         group: parseFloat(document.getElementById('cfg-target-grouping').value),
         first: parseFloat(document.getElementById('cfg-target-first').value),
         split: parseFloat(document.getElementById('cfg-target-split').value),
-        reload: parseFloat(document.getElementById('cfg-target-reload').value),
-        reloadAt: parseInt(document.getElementById('cfg-reload-at').value)
+        reload: parseFloat(document.getElementById('cfg-target-reload').value) || 0,
+        reloadAt: parseInt(document.getElementById('cfg-reload-at').value) || 0,
     };
-    const firstShot = shotTimes[0] || 0;
 
-    // リロード時間: リロード直前の最後の発射 → リロード後の最初の発射 までの時間
-    // shotTimes[reloadAt-1] = MAG1最終弾, shotTimes[reloadAt] = MAG2初弾
-    // リロード所要時間 = (MAG2初弾 - MAG1最終弾) - 目標初弾速度
-    // 例: MAG1最終弾1s, MAG2初弾5s, 目標初弾2s → 5-1-2 = 2s
+    // ── タイミング計算 ──
+    const firstShot = shotTimes[0] || 0;
     const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt] != null)
         ? Math.max(0, (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt - 1]) - cfg.first)
         : 0;
-
-    // 連射間隔: 以下を除外して純粋な連射速度のみ計算
-    //   i=0        → 初弾（スタートからの時間、splitsに含めない）
-    //   i=reloadAt → リロード時間（reloadTimeで別途計測）
-    //   i=reloadAt+1 → リロード後の初弾（問題3: cfg.firstと同様に評価）
     let splits = [];
     for (let i = 1; i < shotTimes.length; i++) {
-        if (cfg.reloadAt > 0 && i === cfg.reloadAt)     continue; // リロード区間
-        if (cfg.reloadAt > 0 && i === cfg.reloadAt + 1) continue; // リロード後の初弾
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt)     continue;
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt + 1) continue;
         splits.push(shotTimes[i] - shotTimes[i - 1]);
     }
     const avgSplit = splits.length > 0 ? splits.reduce((a, b) => a + b, 0) / splits.length : 0;
-
-    // リロード後の初弾速度（問題3: cfg.firstと同じ基準で評価）
     const reloadFirstShot = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt + 1] != null && shotTimes[cfg.reloadAt] != null)
-        ? (shotTimes[cfg.reloadAt + 1] - shotTimes[cfg.reloadAt])
-        : null;
-
+        ? (shotTimes[cfg.reloadAt + 1] - shotTimes[cfg.reloadAt]) : null;
     const totalTime = shotTimes[shotTimes.length - 1] || 0;
     const maxGrp = Math.max(...individualGroupings, 0);
-
-    // 期待総時間: 初弾 + MAG1連射 + リロード + リロード後初弾 + MAG2連射
     const mag1Splits = cfg.reloadAt > 1 ? cfg.reloadAt - 1 : 0;
     const mag2Shots  = cfg.reloadAt > 0 ? cfg.totalShots - cfg.reloadAt - 1 : cfg.totalShots - 1;
     const expectedTotal = cfg.reloadAt > 0
         ? cfg.first + cfg.split * mag1Splits + cfg.reload + cfg.first + cfg.split * mag2Shots
         : cfg.first + cfg.split * (cfg.totalShots - 1);
+
+    // シナリオ固有の合計時間目標
+    const goalTotal = (preset && preset.goalTotalTime) ? preset.goalTotalTime : expectedTotal;
 
     finalStats = {
         accuracy: {
@@ -1283,57 +1338,181 @@ function generateAssessment() {
             group: { val: maxGrp,         goal: cfg.group,      grade: getGrade(maxGrp, cfg.group, true) }
         },
         speed: {
-            first:       { val: firstShot,   goal: cfg.first, grade: getGrade(firstShot, cfg.first, true) },
+            split: { val: avgSplit,  goal: cfg.split,    grade: getGrade(avgSplit, cfg.split, true) },
+            total: { val: totalTime, goal: goalTotal,    grade: getGrade(totalTime, goalTotal, true) },
+            first: { val: firstShot, goal: cfg.first,    grade: getGrade(firstShot, cfg.first, true) },
             reloadFirst: reloadFirstShot != null
                 ? { val: reloadFirstShot, goal: cfg.first, grade: getGrade(reloadFirstShot, cfg.first, true) }
                 : null
         },
         control: {
-            split:  { val: avgSplit,   goal: cfg.split,  grade: getGrade(avgSplit, cfg.split, true) },
-            reload: { val: reloadTime, goal: cfg.reload, grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' }
+            split:    { val: avgSplit,   goal: cfg.split,   grade: getGrade(avgSplit, cfg.split, true) },
+            reload:   { val: reloadTime, goal: cfg.reload,  grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' },
+            headshot: null,   // チェックリスト: 成績確定後に入力
         },
-        exposure: { total: { val: totalTime, goal: expectedTotal, grade: getGrade(totalTime, expectedTotal, true) } }
+        exposure: {
+            total:    { val: totalTime, goal: goalTotal, grade: getGrade(totalTime, goalTotal, true) },
+            checklist: null,  // チェックリスト: 成績確定後に入力
+        },
+        adapt: { grade: null, val: null },
+        scenarioType: preset ? preset.scenarioType : 'custom',
+        preset: preset,
     };
 
-    const createDetailRow = (lbl, stat, unit) =>
+    const createDetailRow = (lbl, stat, unit, decimals=2) =>
         `<div class="score-row"><span>${lbl}</span><div style="display:flex;align-items:center;">
-        <span class="val-main">${stat.val.toFixed(2)}${unit}</span>
+        <span class="val-main">${typeof stat.val === 'number' ? stat.val.toFixed(decimals) : stat.val}${unit}</span>
         <span class="grade-badge grade-${stat.grade}">${stat.grade}</span></div></div>`;
+
+    // ── シナリオ別の制御・暴露・適応UI生成 ──
+    const stype = finalStats.scenarioType;
+
+    const controlHtml = (() => {
+        if (stype === 'posture') {
+            // 弾倉交換時間
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【制御 / Control】弾倉交換時間</span>
+                ${cfg.reloadAt > 0 ? createDetailRow("弾倉交換所要時間", finalStats.control.reload, "s") : '<div style="color:#555;font-size:0.75rem;padding:4px;">計測なし（リロード設定なし）</div>'}
+            </div>`;
+        } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+            // 5発目頭部命中チェック
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【制御 / Control】5発目 頭部命中</span>
+                <div style="display:flex; gap:10px; align-items:center; padding:6px 0;">
+                    <button id="ctrl-head-yes" onclick="setHeadshot(true)"
+                        style="flex:1; padding:8px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.8rem;">
+                        ✅ 命中あり
+                    </button>
+                    <button id="ctrl-head-no" onclick="setHeadshot(false)"
+                        style="flex:1; padding:8px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.8rem;">
+                        ❌ 命中なし
+                    </button>
+                </div>
+                <div id="ctrl-head-result" style="font-size:0.72rem; color:#555; font-family:monospace; padding:2px 0;">
+                    未入力
+                </div>
+            </div>`;
+        }
+        return '';
+    })();
+
+    const exposureHtml = (() => {
+        if (stype === 'posture') {
+            // 目標ごとの暴露有無チェックリスト
+            const tgts = preset.targetGroups || [];
+            const checks = tgts.map((tg, i) => `
+                <div style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #111;">
+                    <span style="font-size:0.75rem; color:#888; min-width:60px;">${tg.label}</span>
+                    <button id="exp-btn-${i}-yes" onclick="setExposure(${i}, true)"
+                        style="flex:1; padding:5px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.72rem;">
+                        暴露あり
+                    </button>
+                    <button id="exp-btn-${i}-no" onclick="setExposure(${i}, false)"
+                        style="flex:1; padding:5px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.72rem;">
+                        暴露なし
+                    </button>
+                </div>`).join('');
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【暴露 / Exposure】目標ごと暴露有無</span>
+                <div style="font-size:0.65rem; color:#555; margin-bottom:6px;">暴露なし = 良好。目標値: ${preset.goalExposureCount}回以下で合格</div>
+                ${checks}
+                <div id="exp-summary" style="font-size:0.72rem; color:#555; font-family:monospace; padding:6px 0 2px;">未入力</div>
+            </div>`;
+        } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+            return ''; // 暴露評価なし
+        }
+        // カスタム: 合計時間のみ
+        return `
+        <div class="eval-group">
+            <span class="eval-group-title">【暴露 / Exposure】</span>
+            ${createDetailRow("射撃合計時間", finalStats.exposure.total, "s")}
+        </div>`;
+    })();
+
+    const adaptHtml = (() => {
+        if (stype === 'suppress_night') {
+            // 昼間セッションを参照
+            const daySessions = getSessions().filter(s => s.scenarioType === 'suppress_day').sort((a,b) => b.id - a.id);
+            if (daySessions.length === 0) {
+                return `
+                <div class="eval-group">
+                    <span class="eval-group-title">【適応 / Adapt】昼間比較</span>
+                    <div style="color:#555; font-size:0.75rem; padding:6px 0;">昼間セッションが見つかりません。先に制圧致命射撃（昼間）を実施してください。</div>
+                </div>`;
+            }
+            const day = daySessions[0];
+            const dayTotal = day.stats?.speed?.total?.val || day.stats?.exposure?.total?.val || null;
+            const nightTotal = totalTime;
+            let adaptGrade = 'B', adaptText = '--';
+            if (dayTotal && dayTotal > 0) {
+                const degradation = (nightTotal - dayTotal) / dayTotal;
+                finalStats.adapt.val = degradation;
+                const limit = preset.adaptDegradationLimit || 0.20;
+                if (degradation <= 0)             { adaptGrade = 'A'; adaptText = `+${Math.abs(degradation*100).toFixed(1)}% 改善`; }
+                else if (degradation <= limit * 0.5) { adaptGrade = 'A'; adaptText = `${(degradation*100).toFixed(1)}% 悪化（許容内）`; }
+                else if (degradation <= limit)       { adaptGrade = 'B'; adaptText = `${(degradation*100).toFixed(1)}% 悪化（許容内）`; }
+                else if (degradation <= limit * 1.4) { adaptGrade = 'C'; adaptText = `${(degradation*100).toFixed(1)}% 悪化`; }
+                else                                 { adaptGrade = 'D'; adaptText = `${(degradation*100).toFixed(1)}% 悪化（許容超過）`; }
+                finalStats.adapt.grade = adaptGrade;
+            }
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【適応 / Adapt】昼間比 パフォーマンス変化</span>
+                <div class="score-row"><span>合計時間 昼間比</span>
+                    <div style="display:flex;align-items:center;">
+                    <span class="val-main">${adaptText}</span>
+                    <span class="grade-badge grade-${adaptGrade}">${adaptGrade}</span>
+                    </div>
+                </div>
+                <div style="font-size:0.65rem; color:#555; margin-top:4px;">
+                    参照セッション: ${day.shooter} / ${day.timestamp.slice(0,10)} / 合計時間 ${dayTotal ? dayTotal.toFixed(2)+'s' : '--'}
+                </div>
+            </div>`;
+        }
+        return ''; // 昼間・姿勢変換は適応評価なし
+    })();
+
+    // ── 速度・精度の表示 ──
+    const speedHtml = `
+    <div class="eval-group">
+        <span class="eval-group-title">【速度 / Speed】</span>
+        ${createDetailRow("平均射撃間隔", finalStats.speed.split, "s")}
+        ${createDetailRow("射撃合計時間", finalStats.speed.total, "s")}
+    </div>`;
+
+    const accuracyHtml = `
+    <div class="eval-group">
+        <span class="eval-group-title">【精度 / Accuracy】</span>
+        ${createDetailRow("命中数", finalStats.accuracy.hits, "発", 0)}
+        ${createDetailRow("最大散布界", finalStats.accuracy.group, "cm")}
+    </div>`;
 
     area.innerHTML = `
         <div class="card">
-            <h2>4. Comprehensive Analysis</h2>
+            <h2>4. 総合評価</h2>
+            <div style="font-size:0.7rem; color:#555; margin-bottom:10px; font-family:monospace;">
+                ${preset ? preset.label : 'カスタム'}
+            </div>
 
             <div style="display:flex; justify-content:center; background:#000; padding:10px; border-radius:6px; margin-bottom:12px;">
                 <canvas id="radarCanvas" width="400" height="400" style="width:260px;height:260px;"></canvas>
             </div>
 
-            <div class="eval-group">
-                <span class="eval-group-title">【精度 / Accuracy】</span>
-                ${createDetailRow("目標命中数", finalStats.accuracy.hits, "発")}
-                ${createDetailRow("最大散布界", finalStats.accuracy.group, "cm")}
-            </div>
-            <div class="eval-group">
-                <span class="eval-group-title">【速度 / Speed】</span>
-                ${createDetailRow("初弾反応速度 (MAG1)", finalStats.speed.first, "s")}
-                ${cfg.reloadAt > 0 && finalStats.speed.reloadFirst ? createDetailRow("初弾反応速度 (MAG2)", finalStats.speed.reloadFirst, "s") : ""}
-            </div>
-            <div class="eval-group">
-                <span class="eval-group-title">【制御 / Control】</span>
-                ${createDetailRow("平均連射間隔", finalStats.control.split, "s")}
-                ${cfg.reloadAt > 0 ? createDetailRow("リロード所要時間 ※(MAG2初弾-MAG1最終弾)-目標初弾速度", finalStats.control.reload, "s") : ""}
-            </div>
-            <div class="eval-group">
-                <span class="eval-group-title">【暴露 / Exposure】</span>
-                ${createDetailRow("総暴露時間", finalStats.exposure.total, "s")}
-            </div>
+            ${speedHtml}
+            ${accuracyHtml}
+            ${controlHtml}
+            ${exposureHtml}
+            ${adaptHtml}
 
             <h2 style="margin-top:16px;">Shot Timing Graph</h2>
             <div class="timing-graph-wrap">
                 <canvas id="timingCanvas"></canvas>
             </div>
 
-            <div style="display:flex; gap:8px; margin-top:16px;">
+            <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
                 <button onclick="saveSession()" class="btn-secondary">💾 セッション保存</button>
                 <button onclick="exportFullCSV()" class="btn-secondary">📊 CSV出力</button>
             </div>
@@ -1342,84 +1521,154 @@ function generateAssessment() {
     setTimeout(() => { drawRadar(); drawTimingGraph(); }, 80);
 }
 
+// ── チェックリスト入力関数 ──
+let exposureChecks = [];  // 暴露チェック結果配列
+
+function setHeadshot(hit) {
+    finalStats.control.headshot = { val: hit ? 1 : 0, grade: hit ? 'A' : 'D' };
+    document.getElementById('ctrl-head-yes').style.background = hit ? '#003300' : '#111';
+    document.getElementById('ctrl-head-yes').style.borderColor = hit ? '#32d74b' : '#444';
+    document.getElementById('ctrl-head-yes').style.color = hit ? '#32d74b' : '#888';
+    document.getElementById('ctrl-head-no').style.background = !hit ? '#330000' : '#111';
+    document.getElementById('ctrl-head-no').style.borderColor = !hit ? '#ff3b30' : '#444';
+    document.getElementById('ctrl-head-no').style.color = !hit ? '#ff3b30' : '#888';
+    document.getElementById('ctrl-head-result').textContent = hit ? '✅ 頭部命中あり — A' : '❌ 頭部命中なし — D';
+    document.getElementById('ctrl-head-result').style.color = hit ? '#32d74b' : '#ff3b30';
+    drawRadar();
+}
+
+function setExposure(idx, hasExposure) {
+    const preset = PRESETS[currentPreset];
+    if (!preset) return;
+    if (!finalStats.exposure.checklist) {
+        finalStats.exposure.checklist = new Array(preset.targetGroups.length).fill(null);
+    }
+    finalStats.exposure.checklist[idx] = hasExposure;
+
+    ['yes','no'].forEach(v => {
+        const btn = document.getElementById(`exp-btn-${idx}-${v}`);
+        const active = v === 'yes' ? hasExposure : !hasExposure;
+        btn.style.background = active ? (v==='yes' ? '#330000':'#003300') : '#111';
+        btn.style.borderColor = active ? (v==='yes' ? '#ff3b30':'#32d74b') : '#444';
+        btn.style.color = active ? (v==='yes' ? '#ff3b30':'#32d74b') : '#888';
+    });
+
+    const checks = finalStats.exposure.checklist;
+    const filled = checks.filter(v => v !== null).length;
+    const count = checks.filter(v => v === true).length;
+    const goal = preset.goalExposureCount ?? 1;
+    const expGrade = count <= goal ? (count === 0 ? 'A' : 'B') : (count <= goal + 1 ? 'C' : 'D');
+    finalStats.exposure.checkGrade = expGrade;
+
+    const summary = document.getElementById('exp-summary');
+    if (summary) {
+        summary.textContent = filled < checks.length
+            ? `${filled}/${checks.length} 入力済み`
+            : `暴露回数: ${count}回 / 目標: ${goal}回以下 → ${expGrade}`;
+        summary.style.color = filled < checks.length ? '#555' : { A:'#32d74b', B:'#ffcc00', C:'#ff9500', D:'#ff3b30' }[expGrade];
+    }
+    drawRadar();
+}
+
 /* ═══════════════════════════════════════════
    RADAR CHART (強化版)
 ═══════════════════════════════════════════ */
 function drawRadar() {
     const cvs = document.getElementById('radarCanvas'); if (!cvs) return;
-    const ctx = cvs.getContext('2d'), r = 130, cx = 200, cy = 200;
-    ctx.clearRect(0, 0, 400, 400);
+    if (!finalStats) return;
 
-    const ranks = ["D","C","B","A"];
+    const stype = finalStats.scenarioType || 'custom';
+    const gradeToScore = g => ({ 'A':1.0, 'B':0.75, 'C':0.5, 'D':0.25 }[g] || 0.25);
+    const avgScore = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+    const scoreToGrade = s => s>=0.875?'A':s>=0.625?'B':s>=0.375?'C':'D';
+
+    // ── シナリオ別の評価軸を構築 ──
+    // 評価する軸のみ含める（評価しない軸はスキップ）
+    const axes = [];
+
+    // 速度: 常に評価（射撃間隔 + 合計時間）
+    axes.push({
+        label: '速度',
+        score: avgScore([gradeToScore(finalStats.speed.split.grade), gradeToScore(finalStats.speed.total.grade)])
+    });
+
+    // 精度: 常に評価（命中数 + 散布界）
+    axes.push({
+        label: '精度',
+        score: avgScore([gradeToScore(finalStats.accuracy.hits.grade), gradeToScore(finalStats.accuracy.group.grade)])
+    });
+
+    // 制御: シナリオ依存
+    if (stype === 'posture') {
+        // 弾倉交換時間のみ
+        axes.push({ label: '制御', score: gradeToScore(finalStats.control.reload.grade) });
+    } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+        // 頭部命中チェック
+        const hs = finalStats.control.headshot;
+        axes.push({ label: '制御', score: hs ? gradeToScore(hs.grade) : 0.5 });
+    } else {
+        // カスタム: 連射間隔
+        axes.push({ label: '制御', score: gradeToScore(finalStats.control.split.grade) });
+    }
+
+    // 暴露: 姿勢変換のみ
+    if (stype === 'posture') {
+        const expG = finalStats.exposure.checkGrade || 'B';
+        axes.push({ label: '暴露', score: gradeToScore(expG) });
+    }
+
+    // 適応: 夜間のみ
+    if (stype === 'suppress_night' && finalStats.adapt.grade) {
+        axes.push({ label: '適応', score: gradeToScore(finalStats.adapt.grade) });
+    }
+
+    const N = axes.length;
+    const ctx = cvs.getContext('2d');
+    const r = 110, cx = 200, cy = 200;
+    ctx.clearRect(0, 0, 400, 400);
     ctx.textAlign = "center";
+
+    // グリッド
+    const ranks = ["D","C","B","A"];
     for (let j = 1; j <= 4; j++) {
         ctx.beginPath();
         ctx.strokeStyle = j === 3 ? "rgba(255,204,0,0.5)" : "#1e1e1e";
         ctx.lineWidth = j === 3 ? 1.5 : 1;
-        for (let i = 0; i < 4; i++) {
-            const a = (Math.PI/2)*i - Math.PI/2;
-            ctx.lineTo(cx + (r*j/4)*Math.cos(a), cy + (r*j/4)*Math.sin(a));
+        for (let i = 0; i < N; i++) {
+            const a = (2*Math.PI/N)*i - Math.PI/2;
+            const x = cx + (r*j/4)*Math.cos(a), y = cy + (r*j/4)*Math.sin(a);
+            i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
         }
         ctx.closePath(); ctx.stroke();
         ctx.fillStyle = j === 3 ? "rgba(255,204,0,0.5)" : "#333";
         ctx.font = "9px 'Share Tech Mono', monospace";
-        ctx.fillText(ranks[j-1], cx + 5, cy - (r*j/4) + 9);
+        const ra = -Math.PI/2;
+        ctx.fillText(ranks[j-1], cx + (r*j/4)*Math.cos(ra)+6, cy + (r*j/4)*Math.sin(ra)+4);
     }
     // 軸線
-    for (let i = 0; i < 4; i++) {
-        const a = (Math.PI/2)*i - Math.PI/2;
+    for (let i = 0; i < N; i++) {
+        const a = (2*Math.PI/N)*i - Math.PI/2;
         ctx.beginPath(); ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
         ctx.moveTo(cx, cy); ctx.lineTo(cx + r*Math.cos(a), cy + r*Math.sin(a)); ctx.stroke();
     }
-
-    const labels = ["精度","速度","制御","暴露"];
-    // グレード → 数値変換
-    const gradeToScore = g => ({ 'A':1.0, 'B':0.75, 'C':0.5, 'D':0.25 }[g] || 0.25);
-    const avgGrade = scores => {
-        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-        if (avg >= 0.875) return 'A';
-        if (avg >= 0.625) return 'B';
-        if (avg >= 0.375) return 'C';
-        return 'D';
-    };
-
-    // 各軸: 複数項目がある場合はスコア平均 → グレード再判定
-    const axisScores = [
-        // 精度: 命中数 + 散布界 の平均
-        [gradeToScore(finalStats.accuracy.hits.grade), gradeToScore(finalStats.accuracy.group.grade)],
-        // 速度: MAG1初弾 (+ MAG2初弾があれば平均)
-        finalStats.speed.reloadFirst
-            ? [gradeToScore(finalStats.speed.first.grade), gradeToScore(finalStats.speed.reloadFirst.grade)]
-            : [gradeToScore(finalStats.speed.first.grade)],
-        // 制御: 連射間隔 (リロードありの場合は平均)
-        (finalStats.control.reload && finalStats.control.reload.val > 0)
-            ? [gradeToScore(finalStats.control.split.grade), gradeToScore(finalStats.control.reload.grade)]
-            : [gradeToScore(finalStats.control.split.grade)],
-        // 暴露: 総暴露時間のみ
-        [gradeToScore(finalStats.exposure.total.grade)],
-    ];
-
-    const scores = axisScores.map(arr => arr.reduce((a, b) => a + b, 0) / arr.length);
-    const gradeKeys = axisScores.map(arr => avgGrade(arr));
-
-    // 塗りつぶし
+    // データポリゴン
     ctx.fillStyle = "rgba(255,204,0,0.15)"; ctx.strokeStyle = "rgba(255,204,0,0.8)"; ctx.lineWidth = 2;
     ctx.beginPath();
-    scores.forEach((s, i) => {
-        const a = (Math.PI/2)*i - Math.PI/2;
-        ctx.lineTo(cx + r*s*Math.cos(a), cy + r*s*Math.sin(a));
+    axes.forEach(({ score }, i) => {
+        const a = (2*Math.PI/N)*i - Math.PI/2;
+        const x = cx + r*score*Math.cos(a), y = cy + r*score*Math.sin(a);
+        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
     });
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
-    // ラベル & バッジ
-    scores.forEach((s, i) => {
-        const a = (Math.PI/2)*i - Math.PI/2;
-        const lx = cx + (r+38)*Math.cos(a), ly = cy + (r+38)*Math.sin(a);
+    // ラベル & グレードバッジ
+    axes.forEach(({ label, score }, i) => {
+        const a = (2*Math.PI/N)*i - Math.PI/2;
+        const lx = cx + (r+42)*Math.cos(a), ly = cy + (r+42)*Math.sin(a);
         ctx.fillStyle = "#ccc"; ctx.font = "bold 13px 'Barlow Condensed', sans-serif";
-        ctx.fillText(labels[i], lx, ly);
-
-        const gx = cx + r*s*Math.cos(a), gy = cy + r*s*Math.sin(a);
-        const grade = gradeKeys[i];
+        ctx.fillText(label, lx, ly);
+        const gx = cx + r*score*Math.cos(a), gy = cy + r*score*Math.sin(a);
+        const grade = scoreToGrade(score);
         const col = grade==='A'?"#32d74b":grade==='B'?"#ffcc00":grade==='C'?"#ff9500":"#ff3b30";
         ctx.beginPath(); ctx.fillStyle = col; ctx.arc(gx, gy, 10, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = "#000"; ctx.font = "bold 11px 'Share Tech Mono', monospace";
@@ -1511,6 +1760,389 @@ function drawTimingGraph() {
 }
 
 /* ═══════════════════════════════════════════
+   ASSESSMENT TAB  (3シナリオ総合評価)
+═══════════════════════════════════════════ */
+
+// グレード変換ユーティリティ（gradeAvg は renderHistory 側にも存在するため共有版として定義）
+const GRADE_SCORE = { 'A':4,'B':3,'C':2,'D':1 };
+function g2s(g) { return GRADE_SCORE[g] || null; }
+function s2g(s) { return s>=3.5?'A':s>=2.5?'B':s>=1.5?'C':'D'; }
+function avgGradeOf(grades) {
+    const vals = grades.map(g2s).filter(Boolean);
+    if (!vals.length) return null;
+    return s2g(vals.reduce((a,b)=>a+b,0)/vals.length);
+}
+
+let currentAssessShooter = null;
+
+function renderAssessment() {
+    const sessions = getSessions();
+    // 射手一覧を収集
+    const shooters = [...new Set(sessions.map(s => s.shooter))];
+    const btnsEl = document.getElementById('assess-shooter-btns');
+    if (!shooters.length) {
+        btnsEl.innerHTML = '';
+        document.getElementById('assess-body').innerHTML =
+            '<div style="color:#333;font-size:0.75rem;font-family:monospace;padding:20px 0;text-align:center;">セッションを保存してください</div>';
+        return;
+    }
+    // デフォルト選択
+    if (!currentAssessShooter || !shooters.includes(currentAssessShooter))
+        currentAssessShooter = shooters[0];
+
+    btnsEl.innerHTML = shooters.map(sh => `
+        <button onclick="selectAssessShooter('${sh}')"
+            style="padding:5px 12px; border-radius:4px; border:1px solid ${sh===currentAssessShooter?'var(--primary)':'#333'};
+                   background:${sh===currentAssessShooter?'#1a1400':'#111'}; color:${sh===currentAssessShooter?'var(--primary)':'#888'};
+                   font-size:0.75rem; cursor:pointer; font-family:monospace;">
+            ${sh}
+        </button>`).join('');
+
+    renderAssessBody(sessions, currentAssessShooter);
+}
+
+function selectAssessShooter(shooter) {
+    currentAssessShooter = shooter;
+    renderAssessment();
+}
+
+function renderAssessBody(sessions, shooter) {
+    const el = document.getElementById('assess-body');
+    const mine = sessions.filter(s => s.shooter === shooter);
+
+    // シナリオ別最新セッション
+    const byType = {};
+    mine.forEach(s => { if (!byType[s.scenarioType]) byType[s.scenarioType] = s; });
+    const P = byType['posture'];
+    const D = byType['suppress_day'];
+    const N = byType['suppress_night'];
+
+    // ── 各シナリオの指標スコアを抽出 ──
+    // 返り値: { speed, accuracy, control, exposure, adapt } それぞれ grade or null
+    function extractScores(s) {
+        if (!s) return null;
+        const st = s.scenarioType, stats = s.stats;
+        const speed    = avgGradeOf([stats?.speed?.split?.grade || stats?.speed?.first?.grade]);
+        const accuracy = avgGradeOf([stats?.accuracy?.hits?.grade, stats?.accuracy?.group?.grade]);
+        let control = null, exposure = null, adapt = null;
+        if (st === 'posture') {
+            control  = stats?.control?.reload?.grade || null;
+            exposure = stats?.exposure?.checkGrade   || null;
+        } else if (st === 'suppress_day') {
+            control  = stats?.control?.headshot?.grade || null;
+        } else if (st === 'suppress_night') {
+            control  = stats?.control?.headshot?.grade || null;
+            adapt    = stats?.adapt?.grade             || null;
+        }
+        return { speed, accuracy, control, exposure, adapt };
+    }
+
+    const scP = extractScores(P);
+    const scD = extractScores(D);
+    const scN = extractScores(N);
+
+    // ── 総合スコア計算（評価した指標のみ均等荷重）──
+    const allGrades = [
+        scP?.speed, scP?.accuracy, scP?.control, scP?.exposure,
+        scD?.speed, scD?.accuracy, scD?.control,
+        scN?.speed, scN?.accuracy, scN?.control, scN?.adapt,
+    ].filter(Boolean);
+    const overallGrade = allGrades.length ? avgGradeOf(allGrades) : null;
+    const overallScore = allGrades.length ? allGrades.map(g2s).filter(Boolean).reduce((a,b)=>a+b,0)/allGrades.length : null;
+
+    // ── 適応指標：速度・精度・合計時間の昼夜比較 ──
+    // 夜間の adapt grade を再計算（速度・精度・合計時間の3項目平均悪化率）
+    let adaptDetail = null;
+    if (D && N) {
+        const dSpeedVal  = D.stats?.speed?.split?.val  || D.stats?.speed?.first?.val;
+        const dAccVal    = D.stats?.accuracy?.group?.val; // 散布界（低い方が良い）
+        const dHitsRate  = D.hits / (D.shotTimes?.length || 1);
+        const dTotalVal  = D.stats?.speed?.total?.val  || D.stats?.exposure?.total?.val;
+
+        const nSpeedVal  = N.stats?.speed?.split?.val  || N.stats?.speed?.first?.val;
+        const nAccVal    = N.stats?.accuracy?.group?.val;
+        const nHitsRate  = N.hits / (N.shotTimes?.length || 1);
+        const nTotalVal  = N.stats?.speed?.total?.val  || N.stats?.exposure?.total?.val;
+
+        const limit = 0.20;
+        const degradRatios = [];
+        if (dSpeedVal  && nSpeedVal)  degradRatios.push((nSpeedVal  - dSpeedVal)  / dSpeedVal);   // 間隔：増加が悪化
+        if (dAccVal    && nAccVal)    degradRatios.push((nAccVal    - dAccVal)    / dAccVal);      // 散布：増加が悪化
+        if (dHitsRate  && nHitsRate)  degradRatios.push((dHitsRate  - nHitsRate)  / dHitsRate);   // 命中率：減少が悪化
+        if (dTotalVal  && nTotalVal)  degradRatios.push((nTotalVal  - dTotalVal)  / dTotalVal);   // 合計時間：増加が悪化
+
+        if (degradRatios.length) {
+            const avgDegrad = degradRatios.reduce((a,b)=>a+b,0) / degradRatios.length;
+            let ag;
+            if (avgDegrad <= 0)          ag = 'A';
+            else if (avgDegrad <= limit*0.5) ag = 'A';
+            else if (avgDegrad <= limit)     ag = 'B';
+            else if (avgDegrad <= limit*1.4) ag = 'C';
+            else                             ag = 'D';
+            adaptDetail = { grade: ag, pct: (avgDegrad*100).toFixed(1), ratios: degradRatios, limit };
+            // Nのstatsに反映
+            if (N.stats?.adapt) N.stats.adapt.grade = ag;
+        }
+    }
+
+    // ── HTML生成 ──
+    const gcol = g => g==='A'?'#32d74b':g==='B'?'#ffcc00':g==='C'?'#ff9500':g==='D'?'#ff3b30':'#444';
+    const gbadge = (g, size='28px') => g
+        ? `<div class="grade-badge grade-${g}" style="width:${size};height:${size};display:inline-flex;align-items:center;justify-content:center;font-size:0.85rem;">${g}</div>`
+        : `<div style="width:${size};height:${size};display:inline-flex;align-items:center;justify-content:center;color:#333;font-size:0.7rem;border:1px solid #1a1a1a;border-radius:4px;">—</div>`;
+
+    const scenRow = (label, sc, date) => {
+        if (!sc) return `<div style="color:#333;font-size:0.72rem;padding:6px 0;border-bottom:1px solid #111;">${label}: 未実施</div>`;
+        return `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #0a0a0a;font-size:0.72rem;">
+            <span style="color:#666;min-width:90px;font-family:monospace;">${label}</span>
+            ${gbadge(sc.speed)} <span style="color:#333;font-size:0.6rem;">速度</span>
+            ${gbadge(sc.accuracy)} <span style="color:#333;font-size:0.6rem;">精度</span>
+            ${gbadge(sc.control)} <span style="color:#333;font-size:0.6rem;">制御</span>
+            ${sc.exposure != null ? gbadge(sc.exposure) + '<span style="color:#333;font-size:0.6rem;">暴露</span>' : ''}
+            ${sc.adapt    != null ? gbadge(sc.adapt)    + '<span style="color:#333;font-size:0.6rem;">適応</span>' : ''}
+            <span style="color:#333;font-size:0.6rem;margin-left:auto;">${date||''}</span>
+        </div>`;
+    };
+
+    // ── 適応詳細テキスト ──
+    const adaptText = adaptDetail ? (() => {
+        const labels = ['射撃間隔','散布界','命中率','合計時間'];
+        const items = adaptDetail.ratios.map((r,i) =>
+            `<span style="color:${r>0?'#ff9500':'#32d74b'}">${labels[i]}: ${r>0?'+':''}${(r*100).toFixed(1)}%</span>`
+        ).join('  ');
+        return `<div style="font-size:0.65rem; color:#555; margin-top:6px; line-height:1.8;">
+            昼夜変化（均等荷重平均 ${adaptDetail.pct>0?'+':''}${adaptDetail.pct}%） 許容: ${(adaptDetail.limit*100).toFixed(0)}%以内<br>
+            ${items}
+        </div>`;
+    })() : '';
+
+    el.innerHTML = `
+    <!-- 総合グレード -->
+    <div style="text-align:center; padding:16px 0 12px; border-bottom:1px solid #1a1a1a; margin-bottom:14px;">
+        <div style="font-size:0.6rem; color:#444; letter-spacing:2px; margin-bottom:6px;">OVERALL GRADE</div>
+        <div style="font-size:3.5rem; font-family:'Share Tech Mono',monospace; font-weight:bold; color:${gcol(overallGrade)}; line-height:1;">
+            ${overallGrade || '--'}
+        </div>
+        <div style="font-size:0.65rem; color:#444; margin-top:4px;">${allGrades.length}指標均等荷重平均</div>
+    </div>
+
+    <!-- シナリオ別グレード行 -->
+    <div style="margin-bottom:14px;">
+        ${scenRow('至近(姿勢変換)', scP, P?.timestamp?.slice(5,10))}
+        ${scenRow('制圧致命(昼間)', scD, D?.timestamp?.slice(5,10))}
+        ${scenRow('制圧致命(夜間)', scN, N?.timestamp?.slice(5,10))}
+    </div>
+    ${adaptText}
+
+    <!-- 5つのレーダーチャート -->
+    <div style="margin-top:16px;">
+        <div style="font-size:0.65rem; color:#444; letter-spacing:1px; margin-bottom:10px;">RADAR CHARTS</div>
+
+        <!-- 総合 -->
+        <div style="font-size:0.68rem; color:#666; margin-bottom:4px;">総合</div>
+        <div style="background:#000; border-radius:6px; padding:8px; margin-bottom:12px;">
+            <canvas id="radarOverall" width="400" height="400" style="width:100%;max-width:260px;height:auto;display:block;margin:0 auto;"></canvas>
+        </div>
+
+        <!-- シナリオ別 -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">至近(姿勢変換)</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarPosture" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">制圧致命(昼間)</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarDay" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">制圧致命(夜間)</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarNight" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">適応（昼夜比較）</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarAdapt" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CompareへのリンクボタンとID受け渡し -->
+    <div style="margin-top:16px;">
+        <button onclick="openCombatSimFromAssessment('${shooter}')"
+            style="width:100%; background:#1a0a00; border:1px solid #ff6600; color:#ff9933;
+                   padding:10px; border-radius:4px; font-size:0.85rem; font-weight:bold; cursor:pointer;">
+            ⚔️ この総合結果でCombat Simulationを実行
+        </button>
+    </div>
+    `;
+
+    // レーダー描画
+    setTimeout(() => {
+        drawAssessRadar('radarOverall', buildOverallAxes(scP, scD, scN, adaptDetail), 150);
+        drawAssessRadar('radarPosture', buildScenarioAxes(scP, 'posture'), 110);
+        drawAssessRadar('radarDay',     buildScenarioAxes(scD, 'suppress_day'), 110);
+        drawAssessRadar('radarNight',   buildScenarioAxes(scN, 'suppress_night'), 110);
+        drawAssessRadar('radarAdapt',   buildAdaptAxes(scD, scN, D, N), 110);
+    }, 80);
+
+    // 総合評価をグローバルに保持（Combat Simから参照）
+    window._assessResult = { shooter, scP, scD, scN, overallGrade, overallScore, adaptDetail, sessions: {P,D,N} };
+}
+
+// ── レーダー軸構築 ──
+// 総合: 3シナリオを5指標（速度・精度・制御・暴露・適応）に統合
+// 各指標は評価したシナリオの平均グレードを使用
+function buildOverallAxes(scP, scD, scN, adaptDetail) {
+    const axes = [];
+
+    // 速度: 3シナリオの速度グレードを均等平均
+    const speedGrades = [scP?.speed, scD?.speed, scN?.speed].filter(Boolean);
+    if (speedGrades.length)
+        axes.push({ label: '速度', grade: avgGradeOf(speedGrades) });
+
+    // 精度: 3シナリオの精度グレードを均等平均
+    const accGrades = [scP?.accuracy, scD?.accuracy, scN?.accuracy].filter(Boolean);
+    if (accGrades.length)
+        axes.push({ label: '精度', grade: avgGradeOf(accGrades) });
+
+    // 制御: 3シナリオの制御グレードを均等平均（内容はシナリオ毎に異なるが同一軸）
+    const ctlGrades = [scP?.control, scD?.control, scN?.control].filter(Boolean);
+    if (ctlGrades.length)
+        axes.push({ label: '制御', grade: avgGradeOf(ctlGrades) });
+
+    // 暴露: 姿勢変換のみ評価
+    if (scP?.exposure)
+        axes.push({ label: '暴露', grade: scP.exposure });
+
+    // 適応: 夜間シナリオの昼夜比較
+    if (adaptDetail?.grade)
+        axes.push({ label: '適応', grade: adaptDetail.grade });
+
+    return axes;
+}
+
+function buildScenarioAxes(sc, stype) {
+    if (!sc) return [];
+    const axes = [{ label:'速度', grade: sc.speed }, { label:'精度', grade: sc.accuracy }];
+    if (sc.control)  axes.push({ label: stype==='posture'?'弾倉交換':'頭部命中', grade: sc.control });
+    if (sc.exposure) axes.push({ label:'暴露', grade: sc.exposure });
+    if (sc.adapt)    axes.push({ label:'適応', grade: sc.adapt });
+    return axes;
+}
+
+function buildAdaptAxes(scD, scN, Dsess, Nsess) {
+    // 昼夜の各指標を対比して表示
+    const axes = [];
+    if (scD?.speed && scN?.speed) {
+        const g = avgGradeOf([scD.speed, scN.speed]);
+        axes.push({ label:'速度', grade: g });
+    }
+    if (scD?.accuracy && scN?.accuracy) {
+        const g = avgGradeOf([scD.accuracy, scN.accuracy]);
+        axes.push({ label:'精度', grade: g });
+    }
+    if (scD?.control && scN?.control) {
+        const g = avgGradeOf([scD.control, scN.control]);
+        axes.push({ label:'制御', grade: g });
+    }
+    // 適応指標
+    const adg = Nsess?.stats?.adapt?.grade;
+    if (adg) axes.push({ label:'適応', grade: adg });
+    return axes;
+}
+
+// ── 汎用レーダー描画関数 ──
+function drawAssessRadar(canvasId, axes, r) {
+    const cvs = document.getElementById(canvasId); if (!cvs) return;
+    if (!axes || !axes.length) {
+        const ctx = cvs.getContext('2d');
+        ctx.clearRect(0,0,cvs.width,cvs.height);
+        ctx.fillStyle='#333'; ctx.font='11px monospace'; ctx.textAlign='center';
+        ctx.fillText('データなし', cvs.width/2, cvs.height/2); return;
+    }
+    const N = axes.length;
+    const W = cvs.width, H = cvs.height;
+    const cx = W/2, cy = H/2;
+    const ctx = cvs.getContext('2d');
+    ctx.clearRect(0,0,W,H);
+    ctx.textAlign='center';
+
+    const gts = g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g]||0.25);
+    const ranks = ['D','C','B','A'];
+    // グリッド
+    for (let j=1; j<=4; j++) {
+        ctx.beginPath();
+        ctx.strokeStyle = j===3?'rgba(255,204,0,0.4)':'#1a1a1a';
+        ctx.lineWidth = j===3?1.5:1;
+        for (let i=0; i<N; i++) {
+            const a=(2*Math.PI/N)*i-Math.PI/2;
+            const x=cx+(r*j/4)*Math.cos(a), y=cy+(r*j/4)*Math.sin(a);
+            i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+        }
+        ctx.closePath(); ctx.stroke();
+    }
+    // 軸線
+    for (let i=0; i<N; i++) {
+        const a=(2*Math.PI/N)*i-Math.PI/2;
+        ctx.beginPath(); ctx.strokeStyle='#1a1a1a'; ctx.lineWidth=1;
+        ctx.moveTo(cx,cy); ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a)); ctx.stroke();
+    }
+    // データポリゴン
+    const scores = axes.map(ax=>gts(ax.grade));
+    ctx.fillStyle='rgba(255,204,0,0.15)'; ctx.strokeStyle='rgba(255,204,0,0.8)'; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    scores.forEach((s,i)=>{
+        const a=(2*Math.PI/N)*i-Math.PI/2;
+        const x=cx+r*s*Math.cos(a), y=cy+r*s*Math.sin(a);
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // ラベル & バッジ
+    const labelR = r + (r < 130 ? 28 : 38);
+    const dotR = r < 130 ? 7 : 10;
+    axes.forEach(({label,grade},i)=>{
+        const a=(2*Math.PI/N)*i-Math.PI/2;
+        const lx=cx+labelR*Math.cos(a), ly=cy+labelR*Math.sin(a);
+        ctx.fillStyle='#aaa'; ctx.font=`bold ${r<130?9:11}px 'Barlow Condensed',sans-serif`;
+        ctx.fillText(label,lx,ly);
+        const s=gts(grade);
+        const gx=cx+r*s*Math.cos(a), gy=cy+r*s*Math.sin(a);
+        const col=grade==='A'?'#32d74b':grade==='B'?'#ffcc00':grade==='C'?'#ff9500':'#ff3b30';
+        ctx.beginPath(); ctx.fillStyle=col; ctx.arc(gx,gy,dotR,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#000'; ctx.font=`bold ${r<130?8:10}px 'Share Tech Mono',monospace`;
+        ctx.fillText(grade,gx,gy+dotR*0.4);
+    });
+}
+
+// Combat SimへのAssessment受け渡し
+function openCombatSimFromAssessment(shooter) {
+    switchTab('compare');
+    // 少し待ってから選択
+    setTimeout(() => {
+        const sel = document.getElementById('sim-session-select');
+        if (!sel) return;
+        // assessment結果を仮想エントリとしてセレクタに追加
+        const opt = document.querySelector('#sim-session-select option[value="__assess__"]');
+        if (!opt) {
+            const o = document.createElement('option');
+            o.value = '__assess__';
+            o.textContent = `[総合] ${shooter}`;
+            sel.insertBefore(o, sel.options[1]);
+        }
+        sel.value = '__assess__';
+    }, 200);
+}
+
+/* ═══════════════════════════════════════════
    SESSION HISTORY (新機能)
 ═══════════════════════════════════════════ */
 function saveSession() {
@@ -1521,6 +2153,7 @@ function saveSession() {
         range: getRangeString(),
         rangeArr: getRangeArray(),
         preset: currentPreset,
+        scenarioType: finalStats ? finalStats.scenarioType : 'custom',
         timestamp: new Date().toLocaleString('ja-JP'),
         shotTimes: [...shotTimes],
         stats: JSON.parse(JSON.stringify(finalStats)),
@@ -1809,39 +2442,197 @@ function drawTrendGraph() {
     ctx.fillStyle = cfg.color; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
     ctx.fillText(cfg.label, pad.l, 11);
 }
+// シナリオラベルマップ
+const SCENARIO_LABELS = {
+    posture:       '至近（姿勢変換）',
+    suppress_day:  '制圧致命（昼間）',
+    suppress_night:'制圧致命（夜間）',
+    custom:        'カスタム',
+};
+
 function renderHistory() {
     const sessions = getSessions();
     const el = document.getElementById('history-list');
     if (!sessions.length) {
         el.innerHTML = '<div class="history-empty">NO SESSIONS SAVED<br><span style="font-size:0.65rem;">セッション完了後に「セッション保存」を押してください</span></div>';
+        renderIntegratedEval(sessions);
         return;
     }
-    const gradeColor = g => g==='A'?'#32d74b':g==='B'?'#ffcc00':g==='C'?'#ff9500':'#ff3b30';
-    el.innerHTML = sessions.map(s => `
+
+    el.innerHTML = sessions.map(s => {
+        const stype = s.scenarioType || 'custom';
+        const slabel = SCENARIO_LABELS[stype] || stype;
+
+        // シナリオ別に表示するグレードを選択
+        const gradeItems = getSessionGradeItems(s);
+
+        const statsLine = [
+            s.stats?.speed?.split?.val != null ? `間隔: ${s.stats.speed.split.val.toFixed(2)}s` :
+            s.stats?.speed?.first?.val  != null ? `初弾: ${s.stats.speed.first.val.toFixed(2)}s` : null,
+            s.stats?.accuracy?.group?.val != null ? `散布: ${s.stats.accuracy.group.val.toFixed(1)}cm` : null,
+            `命中: ${s.hits}発`,
+        ].filter(Boolean).join(' | ');
+
+        return `
         <div class="history-card">
             <div class="history-card-header">
                 <div>
                     <div class="history-card-id">${s.shooter}</div>
-                    <div style="font-size:0.65rem; color:#666; margin-top:2px;">${s.range}m · ${s.shotTimes.length}発 · ${s.timestamp}</div>
+                    <div style="font-size:0.65rem; color:#555; margin-top:1px; font-family:monospace;">${slabel}</div>
+                    <div style="font-size:0.6rem; color:#444; margin-top:2px;">${s.range}m · ${s.shotTimes.length}発 · ${s.timestamp}</div>
                 </div>
                 <div class="history-grades">
-                    ${[['ACC',s.stats.accuracy?.hits?.grade],['SPD',s.stats.speed?.first?.grade],['CTL',s.stats.control?.split?.grade],['EXP',s.stats.exposure?.total?.grade]].map(([l,g])=>`
+                    ${gradeItems.map(([l,g]) => `
                     <div class="history-grade-item">
                         <div class="grade-badge grade-${g||'D'}" style="width:24px;height:24px;">${g||'?'}</div>
                         <div class="history-grade-label">${l}</div>
                     </div>`).join('')}
                 </div>
             </div>
-            <div style="font-size:0.7rem; color:#555; font-family:monospace;">
-                初弾: ${s.stats.speed?.first?.val?.toFixed(2)||'--'}s | 
-                散布: ${s.stats.accuracy?.group?.val?.toFixed(1)||'--'}cm | 
-                命中: ${s.hits}発
-            </div>
+            <div style="font-size:0.7rem; color:#555; font-family:monospace;">${statsLine}</div>
             <div class="history-actions">
                 <button class="btn-secondary btn-danger" onclick="deleteSession(${s.id})">削除</button>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
+
+    renderIntegratedEval(sessions);
+}
+
+// セッションのシナリオ別グレード項目を返す
+function getSessionGradeItems(s) {
+    const stype = s.scenarioType || 'custom';
+    const items = [];
+    // 速度（全シナリオ）
+    const spdG = s.stats?.speed?.split?.grade || s.stats?.speed?.first?.grade;
+    if (spdG) items.push(['速度', spdG]);
+    // 精度（全シナリオ）
+    const accG = gradeAvg([s.stats?.accuracy?.hits?.grade, s.stats?.accuracy?.group?.grade]);
+    if (accG) items.push(['精度', accG]);
+    // 制御
+    if (stype === 'posture') {
+        const ctlG = s.stats?.control?.reload?.grade;
+        if (ctlG) items.push(['制御', ctlG]);
+    } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+        const hsG = s.stats?.control?.headshot?.grade;
+        if (hsG) items.push(['制御', hsG]);
+    }
+    // 暴露（姿勢変換のみ）
+    if (stype === 'posture') {
+        const expG = s.stats?.exposure?.checkGrade;
+        if (expG) items.push(['暴露', expG]);
+    }
+    // 適応（夜間のみ）
+    if (stype === 'suppress_night') {
+        const adpG = s.stats?.adapt?.grade;
+        if (adpG) items.push(['適応', adpG]);
+    }
+    return items;
+}
+
+// グレード文字列配列の平均グレードを返す
+function gradeAvg(grades) {
+    const map = { 'A':4,'B':3,'C':2,'D':1 };
+    const valid = grades.filter(g => g && map[g]);
+    if (!valid.length) return null;
+    const avg = valid.reduce((a,g) => a + map[g], 0) / valid.length;
+    return avg >= 3.5 ? 'A' : avg >= 2.5 ? 'B' : avg >= 1.5 ? 'C' : 'D';
+}
+
+// ── 3射撃要領 総合評価 ──
+function renderIntegratedEval(sessions) {
+    const el = document.getElementById('integrated-eval-body');
+    if (!el) return;
+
+    // 射手IDごとにグループ化
+    const shooters = {};
+    sessions.forEach(s => {
+        const id = s.shooter;
+        if (!shooters[id]) shooters[id] = {};
+        const st = s.scenarioType;
+        // 同一射手の各シナリオで最新1件を使用
+        if (!shooters[id][st]) shooters[id][st] = s;
+    });
+
+    const rows = Object.entries(shooters).map(([shooter, byType]) => {
+        const posture      = byType['posture'];
+        const suppress_day = byType['suppress_day'];
+        const suppress_night = byType['suppress_night'];
+
+        if (!posture && !suppress_day && !suppress_night) return null;
+
+        // 各シナリオから評価軸のグレードスコアを収集（評価している軸のみ）
+        const allScores = [];
+        const gradeMap = { 'A':4,'B':3,'C':2,'D':1 };
+        const toScore = g => gradeMap[g] || null;
+
+        const pushIfExists = (g) => { const s = toScore(g); if(s) allScores.push(s); };
+
+        // 姿勢変換: 速度・精度・制御（弾倉交換）・暴露
+        if (posture) {
+            const p = posture.stats;
+            pushIfExists(p?.speed?.split?.grade || p?.speed?.first?.grade);
+            pushIfExists(gradeAvg([p?.accuracy?.hits?.grade, p?.accuracy?.group?.grade]));
+            pushIfExists(p?.control?.reload?.grade);
+            pushIfExists(p?.exposure?.checkGrade);
+        }
+        // 制圧致命（昼間）: 速度・精度・制御（頭部）
+        if (suppress_day) {
+            const d = suppress_day.stats;
+            pushIfExists(d?.speed?.split?.grade || d?.speed?.first?.grade);
+            pushIfExists(gradeAvg([d?.accuracy?.hits?.grade, d?.accuracy?.group?.grade]));
+            pushIfExists(d?.control?.headshot?.grade);
+        }
+        // 制圧致命（夜間）: 速度・精度・制御（頭部）・適応
+        if (suppress_night) {
+            const n = suppress_night.stats;
+            pushIfExists(n?.speed?.split?.grade || n?.speed?.first?.grade);
+            pushIfExists(gradeAvg([n?.accuracy?.hits?.grade, n?.accuracy?.group?.grade]));
+            pushIfExists(n?.control?.headshot?.grade);
+            pushIfExists(n?.adapt?.grade);
+        }
+
+        if (!allScores.length) return null;
+
+        const totalAvg = allScores.reduce((a,b)=>a+b,0) / allScores.length;
+        const overallGrade = totalAvg >= 3.5 ? 'A' : totalAvg >= 2.5 ? 'B' : totalAvg >= 1.5 ? 'C' : 'D';
+        const colMap = { A:'#32d74b', B:'#ffcc00', C:'#ff9500', D:'#ff3b30' };
+        const col = colMap[overallGrade];
+
+        const scenBadge = (s, label) => {
+            if (!s) return `<div style="text-align:center; color:#333; font-size:0.65rem;">${label}<br>—</div>`;
+            const items = getSessionGradeItems(s);
+            const g = gradeAvg(items.map(([,gr])=>gr)) || '?';
+            return `<div style="text-align:center;">
+                <div style="font-size:0.6rem; color:#555; margin-bottom:2px;">${label}</div>
+                <div class="grade-badge grade-${g}" style="width:28px;height:28px;margin:0 auto;font-size:0.85rem;">${g}</div>
+                <div style="font-size:0.55rem; color:#444; margin-top:2px;">${s.timestamp.slice(5,10)}</div>
+            </div>`;
+        };
+
+        return `
+        <div style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:6px; padding:12px; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <div style="font-size:0.9rem; font-weight:bold; color:#ccc; font-family:'Barlow Condensed',sans-serif; flex:1;">${shooter}</div>
+                <div style="text-align:center;">
+                    <div style="font-size:0.6rem; color:#555; letter-spacing:1px;">OVERALL</div>
+                    <div style="font-size:2rem; font-family:'Share Tech Mono',monospace; font-weight:bold; color:${col}; line-height:1;">${overallGrade}</div>
+                    <div style="font-size:0.6rem; color:#444;">${allScores.length}指標平均</div>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:6px;">
+                ${scenBadge(posture,       '至近(姿勢)')}
+                ${scenBadge(suppress_day,  '制圧(昼間)')}
+                ${scenBadge(suppress_night,'制圧(夜間)')}
+            </div>
+        </div>`;
+    }).filter(Boolean);
+
+    if (!rows.length) {
+        el.innerHTML = '<div style="color:#333; font-size:0.75rem; font-family:monospace; padding:16px 0; text-align:center;">3シナリオのセッションを保存してください</div>';
+    } else {
+        el.innerHTML = rows.join('');
+    }
 }
 
 function deleteSession(id) {
@@ -1910,46 +2701,45 @@ function renderCompareTable() {
 }
 
 /* ═══════════════════════════════════════════
-   COMBAT SIMULATION  (Monte Carlo)
+   COMBAT SIMULATION  (5指標・シナリオ自動判定)
 ═══════════════════════════════════════════ */
-let currentEnemy = 'guerrilla';
 
-// 仮想敵プリセット定義
-// mean: 平均値、 sd: 標準偏差（正規分布のばらつき）
+// 仮想敵定義: 5指標すべてを設定（評価しない指標はシミュレーション対象外）
+// speed: 射撃間隔(s)低い方が良, accuracy: 命中率0-1高い方が良,
+// control: 0-1(1=満点), exposure: 0-1(1=暴露なし), adapt: 0-1(1=劣化なし)
 const ENEMY_PRESETS = {
     guerrilla: {
-        label:  '軽武装ゲリラ',
-        desc:   '基礎訓練あり・非正規兵',
-        color:  '#ff9500',
-        first:  { mean: 2.5,  sd: 0.60 },   // 初弾速度 (s)
-        split:  { mean: 1.20, sd: 0.30 },   // 連射間隔 (s)
-        hitRate:{ mean: 0.55, sd: 0.15 },   // 命中率 0〜1
+        label: '軽武装ゲリラ', desc: '基礎訓練あり・非正規兵', color: '#ff9500',
+        speed:    { mean: 1.20, sd: 0.30 },  // 射撃間隔(s) 低いと強い
+        accuracy: { mean: 0.55, sd: 0.15 },  // 命中率
+        control:  { mean: 0.50, sd: 0.20 },  // 制御(0-1)
+        exposure: { mean: 0.60, sd: 0.20 },  // 暴露管理(0-1)
+        adapt:    { mean: 0.65, sd: 0.15 },  // 適応(昼夜維持率 0-1)
     },
     elite: {
-        label:  'エリート部隊',
-        desc:   '高度な訓練・特殊部隊レベル',
-        color:  '#ff3b30',
-        first:  { mean: 1.0,  sd: 0.20 },
-        split:  { mean: 0.45, sd: 0.10 },
-        hitRate:{ mean: 0.90, sd: 0.05 },
+        label: 'エリート部隊', desc: '特殊部隊レベル・高度な訓練', color: '#ff3b30',
+        speed:    { mean: 0.45, sd: 0.10 },
+        accuracy: { mean: 0.90, sd: 0.05 },
+        control:  { mean: 0.90, sd: 0.08 },
+        exposure: { mean: 0.92, sd: 0.06 },
+        adapt:    { mean: 0.88, sd: 0.08 },
     },
 };
 
-// Box-Muller 変換で正規分布乱数生成
+let currentEnemy = 'guerrilla';
+
 function randNormal(mean, sd) {
     let u, v;
     do { u = Math.random(); } while (u === 0);
     do { v = Math.random(); } while (v === 0);
     return mean + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
-
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function setEnemy(key) {
     currentEnemy = key;
-    ['guerrilla','elite'].forEach(k => {
-        document.getElementById('enemy-btn-' + k).classList.toggle('active', k === key);
-    });
+    ['guerrilla','elite'].forEach(k =>
+        document.getElementById('enemy-btn-' + k).classList.toggle('active', k === key));
     updateEnemyStatsDisplay();
 }
 
@@ -1957,145 +2747,196 @@ function updateEnemyStatsDisplay() {
     const e = ENEMY_PRESETS[currentEnemy];
     const el = document.getElementById('enemy-stats-display');
     if (!el || !e) return;
-    el.innerHTML =
-        '<span style="color:#888;">' + e.label + '</span> — ' + e.desc + '<br>' +
-        '初弾速度: <strong style="color:#ddd;">' + e.first.mean.toFixed(2) + 's</strong> ±' + e.first.sd.toFixed(2) + 's　' +
-        '命中率: <strong style="color:#ddd;">' + Math.round(e.hitRate.mean * 100) + '%</strong> ±' + Math.round(e.hitRate.sd * 100) + '%　' +
-        '連射間隔: <strong style="color:#ddd;">' + e.split.mean.toFixed(2) + 's</strong> ±' + e.split.sd.toFixed(2) + 's';
+    el.innerHTML = `<span style="color:#888;">${e.label}</span> — ${e.desc}<br>` +
+        `速度(間隔): <strong style="color:#ddd;">${e.speed.mean.toFixed(2)}s</strong> ±${e.speed.sd.toFixed(2)}　` +
+        `精度(命中率): <strong style="color:#ddd;">${Math.round(e.accuracy.mean*100)}%</strong> ±${Math.round(e.accuracy.sd*100)}%<br>` +
+        `制御: <strong style="color:#ddd;">${Math.round(e.control.mean*100)}%</strong> ±${Math.round(e.control.sd*100)}%　` +
+        `暴露管理: <strong style="color:#ddd;">${Math.round(e.exposure.mean*100)}%</strong> ±${Math.round(e.exposure.sd*100)}%　` +
+        `適応: <strong style="color:#ddd;">${Math.round(e.adapt.mean*100)}%</strong> ±${Math.round(e.adapt.sd*100)}%`;
+}
+
+// セッション/Assessment から「使える指標」を0-1スケールで抽出
+function extractSimMetrics(sessionId) {
+    // Assessment総合結果の場合
+    if (sessionId === '__assess__' && window._assessResult) {
+        const ar = window._assessResult;
+        const metrics = {};
+        const gToRate = g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g]);
+        // 各シナリオの速度・精度を平均
+        const speedGrades = [ar.scP?.speed, ar.scD?.speed, ar.scN?.speed].filter(Boolean);
+        const accGrades   = [ar.scP?.accuracy, ar.scD?.accuracy, ar.scN?.accuracy].filter(Boolean);
+        if (speedGrades.length) metrics.speed    = speedGrades.map(gToRate).reduce((a,b)=>a+b)/speedGrades.length;
+        if (accGrades.length)   metrics.accuracy = accGrades.map(gToRate).reduce((a,b)=>a+b)/accGrades.length;
+        // 制御
+        const ctlGrades = [ar.scP?.control, ar.scD?.control, ar.scN?.control].filter(Boolean);
+        if (ctlGrades.length) metrics.control = ctlGrades.map(gToRate).reduce((a,b)=>a+b)/ctlGrades.length;
+        // 暴露（姿勢変換のみ）
+        if (ar.scP?.exposure) metrics.exposure = gToRate(ar.scP.exposure);
+        // 適応（夜間のみ）
+        if (ar.scN?.adapt || ar.adaptDetail?.grade) {
+            metrics.adapt = gToRate(ar.scN?.adapt || ar.adaptDetail?.grade);
+        }
+        return { metrics, label: `[総合] ${ar.shooter}`, sd: 0.10 };
+    }
+
+    // 通常セッション
+    const session = getSessions().find(s => s.id === parseInt(sessionId));
+    if (!session) return null;
+    const st = session.scenarioType || 'custom';
+    const stats = session.stats;
+    const metrics = {};
+    const gToRate = g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g]);
+
+    // 速度: 射撃間隔を正規化（目標間隔に対する達成率 → 0-1）
+    const splitG = stats?.speed?.split?.grade || stats?.speed?.first?.grade;
+    if (splitG) metrics.speed = gToRate(splitG);
+
+    // 精度: 命中数・散布界の平均
+    const accG = avgGradeOf([stats?.accuracy?.hits?.grade, stats?.accuracy?.group?.grade]);
+    if (accG) metrics.accuracy = gToRate(accG);
+
+    // 制御: シナリオ依存
+    if (st === 'posture' && stats?.control?.reload?.grade)
+        metrics.control = gToRate(stats.control.reload.grade);
+    else if ((st === 'suppress_day'||st === 'suppress_night') && stats?.control?.headshot?.grade)
+        metrics.control = gToRate(stats.control.headshot.grade);
+
+    // 暴露: 姿勢変換のみ
+    if (st === 'posture' && stats?.exposure?.checkGrade)
+        metrics.exposure = gToRate(stats.exposure.checkGrade);
+
+    // 適応: 夜間のみ
+    if (st === 'suppress_night' && stats?.adapt?.grade)
+        metrics.adapt = gToRate(stats.adapt.grade);
+
+    const stype_label = { posture:'至近(姿勢)', suppress_day:'制圧(昼間)', suppress_night:'制圧(夜間)', custom:'カスタム' }[st]||st;
+    return { metrics, label: `${session.shooter}  ${stype_label}  ${session.timestamp.slice(5,10)}`, sd: 0.12 };
 }
 
 function populateSimSessionSelect() {
     const sel = document.getElementById('sim-session-select');
     if (!sel) return;
     const sessions = getSessions();
-    sel.innerHTML = '<option value="">-- セッションを選択 --</option>' +
+    const STYPE = { posture:'至近', suppress_day:'制圧昼', suppress_night:'制圧夜', custom:'カスタム' };
+
+    // Assessment エントリ
+    const assessOpts = window._assessResult
+        ? `<option value="__assess__">[総合] ${window._assessResult.shooter}</option>`
+        : '';
+
+    sel.innerHTML = '<option value="">-- セッション / 総合評価を選択 --</option>' +
+        assessOpts +
         sessions.map(s =>
-            '<option value="' + s.id + '">' +
-            s.shooter + '  ' + s.timestamp.slice(0,10) +
-            '  初弾:' + (s.stats?.speed?.first?.val?.toFixed(2)||'--') + 's' +
-            '  命中:' + (s.hits||0) + '発' +
-            '</option>'
+            `<option value="${s.id}">${s.shooter}  ${STYPE[s.scenarioType]||''}  ${s.timestamp.slice(5,10)}  命中:${s.hits||0}発</option>`
         ).join('');
+}
+
+function onSimSessionChange() {
+    const sel = document.getElementById('sim-session-select');
+    const val = sel?.value;
+    if (!val) return;
+    const result = extractSimMetrics(val);
+    const infoEl = document.getElementById('sim-selected-metrics');
+    if (!result || !infoEl) return;
+    const keys = Object.keys(result.metrics);
+    const names = { speed:'速度', accuracy:'精度', control:'制御', exposure:'暴露', adapt:'適応' };
+    infoEl.textContent = '使用指標: ' + keys.map(k=>names[k]||k).join(' · ');
 }
 
 function runCombatSim() {
     const selEl = document.getElementById('sim-session-select');
-    const sessionId = selEl ? parseInt(selEl.value) : NaN;
-    if (!sessionId) { alert('自分のセッションを選択してください。'); return; }
+    const val = selEl?.value;
+    if (!val) { alert('自分のデータを選択してください。'); return; }
 
-    const session = getSessions().find(s => s.id === sessionId);
-    if (!session) { alert('セッションが見つかりません。'); return; }
+    const myData = extractSimMetrics(val);
+    if (!myData || !Object.keys(myData.metrics).length) {
+        alert('指標データが取得できません。セッションを保存してください。');
+        return;
+    }
 
     const enemy = ENEMY_PRESETS[currentEnemy];
     const TRIALS = 1000;
-
-    // 自分の実測値
-    const myFirst   = session.stats?.speed?.first?.val   || 9.9;
-    const myHitRate = session.hits / (session.shotTimes?.length || 1);
-    const mySplit   = session.stats?.control?.split?.val || 9.9;
-
-    // 自分のばらつき（実績の15%をSDとして使用）
-    const mySdFirst   = myFirst   * 0.12;
-    const mySdHit     = Math.min(myHitRate * 0.15, 0.10);
-    const mySdSplit   = mySplit   * 0.12;
+    const metricKeys = Object.keys(myData.metrics);
+    // speed は低いほど良い（逆転）
+    const isHigherBetter = k => k !== 'speed';
 
     let wins = 0, losses = 0, draws = 0;
-    const myScores = [], enemyScores = [];
 
     for (let t = 0; t < TRIALS; t++) {
-        // 各試行でばらつきを加味したパラメータをサンプリング
-        const mF  = clamp(randNormal(myFirst,   mySdFirst),  0.1, 20);
-        const mH  = clamp(randNormal(myHitRate, mySdHit),    0.0,  1);
+        let myTotal = 0, eTotal = 0, count = 0;
 
-        const eF  = clamp(randNormal(enemy.first.mean,   enemy.first.sd),   0.1, 20);
-        const eH  = clamp(randNormal(enemy.hitRate.mean, enemy.hitRate.sd),  0.0,  1);
+        metricKeys.forEach(k => {
+            const myVal = clamp(randNormal(myData.metrics[k], myData.sd), 0.05, 1);
+            const eVal  = clamp(randNormal(enemy[k].mean, enemy[k].sd), 0.05, 1);
+            // 速度は低い方が良いため、enemy.speedは「間隔」として myVal を逆転して評価
+            const myNorm = isHigherBetter(k) ? myVal : (1 - myVal);
+            const eNorm  = isHigherBetter(k) ? eVal  :
+                // 敵のspeedは間隔(s)で格納されていないので、grade換算値(0-1)として直接使う
+                (1 - eVal);
+            myTotal += myNorm;
+            eTotal  += eNorm;
+            count++;
+        });
 
-        // スコア = 命中率 / 初弾速度（高い方が先に有効弾）
-        const myScore    = mH / mF;
-        const enemyScore = eH / eF;
-
-        myScores.push(myScore);
-        enemyScores.push(enemyScore);
-
-        const diff = myScore - enemyScore;
-        if (diff > 0.001)       wins++;
-        else if (diff < -0.001) losses++;
-        else                    draws++;
+        const diff = myTotal - eTotal;
+        if (diff > 0.01 * count)       wins++;
+        else if (diff < -0.01 * count) losses++;
+        else                           draws++;
     }
 
-    const winPct   = (wins   / TRIALS * 100).toFixed(1);
-    const lossPct  = (losses / TRIALS * 100).toFixed(1);
-    const drawPct  = (draws  / TRIALS * 100).toFixed(1);
+    const winPct  = (wins  / TRIALS * 100).toFixed(1);
+    const lossPct = (losses / TRIALS * 100).toFixed(1);
 
-    // 平均スコア
-    const avgMyScore    = myScores.reduce((a,b)=>a+b,0) / TRIALS;
-    const avgEnemyScore = enemyScores.reduce((a,b)=>a+b,0) / TRIALS;
-
-    displaySimResult({
-        winPct, lossPct, drawPct, wins, losses, draws,
-        avgMyScore, avgEnemyScore, enemy,
-        myFirst, myHitRate, mySplit,
-        session, TRIALS
-    });
+    displaySimResult({ winPct, lossPct, wins, losses, draws, TRIALS, enemy, myData, metricKeys });
 }
 
 function displaySimResult(r) {
     const el = document.getElementById('sim-result');
     el.style.display = 'block';
-
     const winN = parseFloat(r.winPct);
 
-    // 勝率テキスト + 色
     const pctEl = document.getElementById('sim-win-pct');
     pctEl.textContent = r.winPct + '%';
-    pctEl.style.color = winN >= 70 ? '#32d74b' : winN >= 50 ? '#ffcc00' : winN >= 30 ? '#ff9500' : '#ff3b30';
+    pctEl.style.color = winN>=70?'#32d74b':winN>=50?'#ffcc00':winN>=30?'#ff9500':'#ff3b30';
 
-    // バーディクト
-    const verdicts = [
-        [80, '🟢 DOMINANT  圧倒的優位'],
-        [65, '🟡 FAVORABLE  有利'],
-        [50, '🟠 CONTESTED  拮抗'],
-        [35, '🔴 DISADVANTAGED  不利'],
-        [ 0, '💀 CRITICAL  危険域'],
-    ];
-    const verdict = verdicts.find(([thr]) => winN >= thr);
-    const verdEl = document.getElementById('sim-verdict');
-    verdEl.textContent = verdict ? verdict[1] : '';
-    verdEl.style.color = pctEl.style.color;
+    const verdicts = [[80,'🟢 DOMINANT  圧倒的優位'],[65,'🟡 FAVORABLE  有利'],
+                      [50,'🟠 CONTESTED  拮抗'],[35,'🔴 DISADVANTAGED  不利'],[0,'💀 CRITICAL  危険域']];
+    const v = verdicts.find(([t]) => winN >= t);
+    const vEl = document.getElementById('sim-verdict');
+    vEl.textContent = v ? v[1] : '';
+    vEl.style.color = pctEl.style.color;
 
-    // ゲージバー
-    const totalW = parseFloat(r.winPct) + parseFloat(r.lossPct);
     document.getElementById('sim-gauge-you').style.width   = r.winPct  + '%';
     document.getElementById('sim-gauge-enemy').style.width = r.lossPct + '%';
 
-    // 指標比較ミニ表
-    const hitPct = (r.myHitRate * 100).toFixed(0);
-    const eHitPct = (r.enemy.hitRate.mean * 100).toFixed(0);
-    const youBetter = (label, mine, theirs, lowerBetter) => {
-        const good = lowerBetter ? mine <= theirs : mine >= theirs;
-        return '<tr>' +
-            '<td style="color:#666; padding:4px 0;">' + label + '</td>' +
-            '<td style="text-align:right; padding:4px 6px; color:' + (good?'#32d74b':'#ff3b30') + '; font-family:monospace;">' + mine + '</td>' +
-            '<td style="text-align:center; color:#333; font-size:0.7rem;">vs</td>' +
-            '<td style="text-align:left; padding:4px 6px; color:' + (!good?'#32d74b':'#ff3b30') + '; font-family:monospace;">' + theirs + '</td>' +
-            '</tr>';
-    };
+    const names = { speed:'速度(間隔)', accuracy:'精度(命中率)', control:'制御', exposure:'暴露管理', adapt:'適応' };
+    const isHB  = k => k !== 'speed';
+    const rows  = r.metricKeys.map(k => {
+        const myV = r.myData.metrics[k];
+        const eV  = r.enemy[k].mean;
+        const good = isHB(k) ? myV >= eV : myV <= eV;
+        return `<tr>
+            <td style="color:#555;padding:4px 0;">${names[k]||k}</td>
+            <td style="text-align:right;padding:4px 6px;color:${good?'#32d74b':'#ff3b30'};font-family:monospace;">
+                ${isHB(k) ? Math.round(myV*100)+'%' : myV.toFixed(2)}</td>
+            <td style="text-align:center;color:#333;font-size:0.7rem;">vs</td>
+            <td style="text-align:left;padding:4px 6px;color:${!good?'#32d74b':'#ff3b30'};font-family:monospace;">
+                ${isHB(k) ? Math.round(eV*100)+'%' : eV.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+
     document.getElementById('sim-metrics-table').innerHTML =
-        '<table style="width:100%; border-collapse:collapse; font-size:0.72rem;">' +
-        '<tr><th style="color:#444; font-size:0.6rem; padding:4px 0; text-align:left;">指標</th>' +
-        '<th style="color:#0099ff; font-size:0.6rem; padding:4px 6px; text-align:right;">YOU</th>' +
-        '<th></th>' +
-        '<th style="color:' + r.enemy.color + '; font-size:0.6rem; padding:4px 6px; text-align:left;">' + r.enemy.label.split('（')[0] + '</th></tr>' +
-        youBetter('初弾速度', r.myFirst.toFixed(2)+'s', r.enemy.first.mean.toFixed(2)+'s', true) +
-        youBetter('命中率',   hitPct+'%',               eHitPct+'%',                       false) +
-        youBetter('連射間隔', r.mySplit.toFixed(2)+'s', r.enemy.split.mean.toFixed(2)+'s', true) +
-        '</table>';
+        `<table style="width:100%;border-collapse:collapse;font-size:0.72rem;">
+        <tr><th style="color:#444;font-size:0.6rem;padding:4px 0;text-align:left;">指標</th>
+        <th style="color:#0099ff;font-size:0.6rem;padding:4px 6px;text-align:right;">YOU</th>
+        <th></th>
+        <th style="color:${r.enemy.color};font-size:0.6rem;padding:4px 6px;text-align:left;">${r.enemy.label}</th></tr>
+        ${rows}</table>`;
 
     document.getElementById('sim-footer').textContent =
-        'n=' + r.TRIALS + ' trials  |  WIN:' + r.wins + '  LOSS:' + r.losses + '  DRAW:' + r.draws;
+        `n=${r.TRIALS}  WIN:${r.wins}  LOSS:${r.losses}  DRAW:${r.draws}  使用指標:${r.metricKeys.length}`;
 }
 
-// Compare タブ初期化
 function initCompareTab() {
     populateSimSessionSelect();
     updateEnemyStatsDisplay();
