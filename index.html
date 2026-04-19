@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver60 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver55 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -211,7 +211,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver60</h1>
+    <h1 class="app-title-main">MaLI ver55</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -271,19 +271,19 @@
     <h2>2. Timer</h2>
     <div class="sens-area">
         <div class="mic-status"><span class="mic-dot" id="mic-dot"></span><span id="mic-status-text">MIC: INACTIVE</span></div>
-        <label>検出閾値: <span id="sens-val">0.85</span></label>
-        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.85" 
+        <label>検出閾値: <span id="sens-val">0.50</span></label>
+        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.50" 
                oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
         <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
             <label style="margin:0; white-space:nowrap;">不感時間:</label>
             <div style="display:flex; gap:6px;">
                 <button id="dt-btn-real" onclick="setDeadTime('real')"
-                    style="background:#1a1400; border:1px solid #444; color:#888; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
-                    実銃 0.07s
+                    style="background:#1a1400; border:1px solid #ffcc00; color:#ffcc00; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer; font-weight:bold;">
+                    実銃 0.07s ✓
                 </button>
                 <button id="dt-btn-gas" onclick="setDeadTime('gas')"
-                    style="background:#003320; border:1px solid #32d74b; color:#32d74b; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer; font-weight:bold;">
-                    ガスBB 0.15s ✓
+                    style="background:#111; border:1px solid #444; color:#888; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
+                    ガスBB 0.15s
                 </button>
             </div>
             <span style="font-size:0.62rem; color:#555; flex-basis:100%;">
@@ -423,6 +423,18 @@
     </div>
     <div class="card">
         <h2>Session History</h2>
+        <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
+            <button onclick="selectAllHistorySessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">
+                ☑ 全選択
+            </button>
+            <button onclick="deselectAllHistorySessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">
+                ☐ 全解除
+            </button>
+            <button onclick="exportSelectedCSV()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#32d74b; color:#32d74b;">
+                📊 選択したセッションをCSV出力
+            </button>
+            <span id="history-select-count" style="font-size:0.65rem; color:#444; font-family:monospace;"></span>
+        </div>
         <div id="history-list"></div>
     </div>
 </div>
@@ -480,12 +492,16 @@
         <div style="margin-bottom:10px;">
             <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:6px;">仮想敵を選択</label>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                <button class="preset-btn active" id="enemy-btn-guerrilla" onclick="setEnemy('guerrilla')" style="flex:1; min-width:80px;">
-                    <span class="preset-name" style="font-size:0.72rem;">軽武装ゲリラ</span>
+                <button class="preset-btn active" id="enemy-btn-guerrilla" onclick="setEnemy('guerrilla')" style="flex:1; min-width:70px;">
+                    <span class="preset-name" style="font-size:0.68rem;">軽武装ゲリラ</span>
                     <span class="preset-desc">基礎訓練あり</span>
                 </button>
-                <button class="preset-btn" id="enemy-btn-elite" onclick="setEnemy('elite')" style="flex:1; min-width:80px;">
-                    <span class="preset-name" style="font-size:0.72rem;">エリート部隊</span>
+                <button class="preset-btn" id="enemy-btn-regular" onclick="setEnemy('regular')" style="flex:1; min-width:70px;">
+                    <span class="preset-name" style="font-size:0.68rem;">正規部隊</span>
+                    <span class="preset-desc">標準的訓練</span>
+                </button>
+                <button class="preset-btn" id="enemy-btn-elite" onclick="setEnemy('elite')" style="flex:1; min-width:70px;">
+                    <span class="preset-name" style="font-size:0.68rem;">エリート部隊</span>
                     <span class="preset-desc">特殊部隊レベル</span>
                 </button>
             </div>
@@ -527,7 +543,7 @@ let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
 let cumulativeHits = 0, individualGroupings = [], finalStats = {};
 let animFrameId = null;
 let lastShotTime = -999;
-let currentDeadTime = 0.15; // デフォルト: ガスBB（0.15s）。実銃は0.07s
+let currentDeadTime = 0.07; // デフォルト: 実銃（0.07s）。ガスBBは0.15s
 
 // 高精度検出用バッファ
 const DETECT_BUFFER = 4;
@@ -2474,12 +2490,16 @@ function renderHistory() {
         ].filter(Boolean).join(' | ');
 
         return `
-        <div class="history-card">
+        <div class="history-card" id="hcard-${s.id}">
             <div class="history-card-header">
-                <div>
-                    <div class="history-card-id">${s.shooter}</div>
-                    <div style="font-size:0.65rem; color:#555; margin-top:1px; font-family:monospace;">${slabel}</div>
-                    <div style="font-size:0.6rem; color:#444; margin-top:2px;">${s.range}m · ${s.shotTimes.length}発 · ${s.timestamp}</div>
+                <div style="display:flex; align-items:flex-start; gap:8px;">
+                    <input type="checkbox" id="hchk-${s.id}" onchange="onHistoryCheckChange()"
+                        style="margin-top:3px; width:16px; height:16px; cursor:pointer; accent-color:var(--primary);">
+                    <div>
+                        <div class="history-card-id">${s.shooter}</div>
+                        <div style="font-size:0.65rem; color:#555; margin-top:1px; font-family:monospace;">${slabel}</div>
+                        <div style="font-size:0.6rem; color:#444; margin-top:2px;">${s.range}m · ${s.shotTimes.length}発 · ${s.timestamp}</div>
+                    </div>
                 </div>
                 <div class="history-grades">
                     ${gradeItems.map(([l,g]) => `
@@ -2491,6 +2511,7 @@ function renderHistory() {
             </div>
             <div style="font-size:0.7rem; color:#555; font-family:monospace;">${statsLine}</div>
             <div class="history-actions">
+                <button class="btn-secondary" onclick="exportSessionCSV(${s.id})" style="font-size:0.72rem;">📊 CSV</button>
                 <button class="btn-secondary btn-danger" onclick="deleteSession(${s.id})">削除</button>
             </div>
         </div>`;
@@ -2716,6 +2737,14 @@ const ENEMY_PRESETS = {
         exposure: { mean: 0.60, sd: 0.20 },  // 暴露管理(0-1)
         adapt:    { mean: 0.65, sd: 0.15 },  // 適応(昼夜維持率 0-1)
     },
+    regular: {
+        label: '正規部隊（標準）', desc: '正規軍・標準的な訓練を受けた兵士', color: '#ffcc00',
+        speed:    { mean: 0.80, sd: 0.20 },
+        accuracy: { mean: 0.72, sd: 0.10 },
+        control:  { mean: 0.70, sd: 0.15 },
+        exposure: { mean: 0.75, sd: 0.12 },
+        adapt:    { mean: 0.75, sd: 0.12 },
+    },
     elite: {
         label: 'エリート部隊', desc: '特殊部隊レベル・高度な訓練', color: '#ff3b30',
         speed:    { mean: 0.45, sd: 0.10 },
@@ -2738,7 +2767,7 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function setEnemy(key) {
     currentEnemy = key;
-    ['guerrilla','elite'].forEach(k =>
+    ['guerrilla','regular','elite'].forEach(k =>
         document.getElementById('enemy-btn-' + k).classList.toggle('active', k === key));
     updateEnemyStatsDisplay();
 }
@@ -2945,6 +2974,115 @@ function initCompareTab() {
 /* ═══════════════════════════════════════════
    CSV EXPORT
 ═══════════════════════════════════════════ */
+// ── History チェックボックス操作 ──
+function onHistoryCheckChange() {
+    const checked = document.querySelectorAll('#history-list input[type=checkbox]:checked').length;
+    const total   = document.querySelectorAll('#history-list input[type=checkbox]').length;
+    const el = document.getElementById('history-select-count');
+    if (el) el.textContent = checked ? `${checked}件選択中` : '';
+}
+
+function selectAllHistorySessions() {
+    document.querySelectorAll('#history-list input[type=checkbox]').forEach(c => c.checked = true);
+    onHistoryCheckChange();
+}
+
+function deselectAllHistorySessions() {
+    document.querySelectorAll('#history-list input[type=checkbox]').forEach(c => c.checked = false);
+    onHistoryCheckChange();
+}
+
+// ── セッションデータからCSV行を生成（共通） ──
+function sessionToCSVRow(s) {
+    const stats = s.stats || {};
+    const stype = s.scenarioType || 'custom';
+    const SLABEL = { posture:'至近射撃(姿勢変換)', suppress_day:'制圧致命(昼間)', suppress_night:'制圧致命(夜間)', custom:'カスタム' };
+
+    const vals = [
+        s.timestamp,
+        s.shooter,
+        SLABEL[stype] || stype,
+        s.shotTimes?.length || 0,
+        s.hits || 0,
+        // 速度
+        stats.speed?.split?.val?.toFixed(2)  || '',
+        stats.speed?.split?.grade            || '',
+        stats.speed?.total?.val?.toFixed(2)  || '',
+        stats.speed?.total?.grade            || '',
+        // 精度
+        stats.accuracy?.hits?.val            || '',
+        stats.accuracy?.hits?.grade          || '',
+        stats.accuracy?.group?.val?.toFixed(2) || '',
+        stats.accuracy?.group?.grade         || '',
+        // 制御
+        stats.control?.reload?.val?.toFixed(2) || stats.control?.headshot?.val || '',
+        stats.control?.reload?.grade || stats.control?.headshot?.grade || '',
+        // 暴露
+        stats.exposure?.checkGrade           || '',
+        // 適応
+        stats.adapt?.grade                   || '',
+        // 射距離
+        s.range || '',
+        // 各弾タイム
+        ...(s.shotTimes || []).map(t => t.toFixed(2)),
+    ];
+    return vals.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+}
+
+// ── 単一セッションCSV出力 ──
+function exportSessionCSV(id) {
+    const s = getSessions().find(s => s.id === id);
+    if (!s) return;
+    const headers = [
+        'Timestamp','ShooterID','ScenarioType','TotalShots','Hits',
+        'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
+        'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
+        'Control_Val','Control_Grade',
+        'Exposure_Grade','Adapt_Grade',
+        'Range_m',
+    ];
+    const totalShots = s.shotTimes?.length || 0;
+    for (let i = 1; i <= totalShots; i++) headers.push(`Shot${i}_s`);
+
+    const csv = '\uFEFF' + headers.join(',') + '\n' + sessionToCSVRow(s);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `MaLI_${s.shooter}_${s.timestamp.slice(0,10).replace(/\//g,'-')}.csv`;
+    a.click();
+}
+
+// ── 選択セッションまとめてCSV出力 ──
+function exportSelectedCSV() {
+    const checked = [...document.querySelectorAll('#history-list input[type=checkbox]:checked')];
+    if (!checked.length) { alert('出力するセッションを選択してください。'); return; }
+
+    const ids = new Set(checked.map(c => parseInt(c.id.replace('hchk-', ''))));
+    const sessions = getSessions().filter(s => ids.has(s.id));
+    if (!sessions.length) return;
+
+    // 最大弾数に合わせてヘッダーを動的生成
+    const maxShots = Math.max(...sessions.map(s => s.shotTimes?.length || 0));
+    const headers = [
+        'Timestamp','ShooterID','ScenarioType','TotalShots','Hits',
+        'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
+        'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
+        'Control_Val','Control_Grade',
+        'Exposure_Grade','Adapt_Grade',
+        'Range_m',
+    ];
+    for (let i = 1; i <= maxShots; i++) headers.push(`Shot${i}_s`);
+
+    const rows = sessions.map(s => sessionToCSVRow(s));
+    const csv = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    const now = new Date().toLocaleDateString('ja-JP').replace(/\//g,'-');
+    a.href = URL.createObjectURL(blob);
+    a.download = `MaLI_Export_${now}.csv`;
+    a.click();
+}
+
 function exportFullCSV() {
     const shooter = document.getElementById('cfg-shooter').value;
     const rangeArr = getRangeArray();
