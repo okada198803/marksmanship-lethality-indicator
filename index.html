@@ -271,23 +271,23 @@
     <h2>2. Timer</h2>
     <div class="sens-area">
         <div class="mic-status"><span class="mic-dot" id="mic-dot"></span><span id="mic-status-text">MIC: INACTIVE</span></div>
-        <label>検出閾値: <span id="sens-val">0.50</span></label>
-        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.50" 
+        <label>検出閾値: <span id="sens-val">0.30</span></label>
+        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.30" 
                oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
         <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
             <label style="margin:0; white-space:nowrap;">不感時間:</label>
             <div style="display:flex; gap:6px;">
                 <button id="dt-btn-real" onclick="setDeadTime('real')"
                     style="background:#1a1400; border:1px solid #ffcc00; color:#ffcc00; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer; font-weight:bold;">
-                    実銃 0.07s ✓
+                    実銃 0.10s [選択中]
                 </button>
                 <button id="dt-btn-gas" onclick="setDeadTime('gas')"
                     style="background:#111; border:1px solid #444; color:#888; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
-                    ガスBB 0.15s
+                    ガスBB 0.20s
                 </button>
             </div>
             <span style="font-size:0.62rem; color:#555; flex-basis:100%;">
-                実銃: ボルト誤検知なし（0.07s） / ガスBB: ブローバック2重カウント防止（0.15s）
+                実銃: 反響音二重検知防止（0.10s） / ガスBB: ブローバック2重カウント防止（0.20s）
             </span>
         </div>
         <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
@@ -302,8 +302,43 @@
     </div>
     <div id="timer-val">0.00</div>
     <div class="shot-log" id="shot-log"></div>
-    <div style="margin-top: 10px;">
-        <button id="startBtn" class="btn-main">START</button>
+    <div style="margin-top: 10px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="startBtn" class="btn-main" style="flex:1;">START</button>
+        <button id="finishBtn" onclick="forceFinishEngagement()" style="display:none; flex:1;"
+            class="btn-secondary">終了</button>
+    </div>
+</div>
+
+<!-- ===== 波形レビューパネル ===== -->
+<div id="waveform-review-area" style="display:none;" class="card">
+    <h2>波形レビュー（手動補正）</h2>
+    <div style="font-size:0.68rem; color:#555; margin-bottom:10px; line-height:1.7;">
+        射撃中の音響波形を確認し、ピークをタップして発射時刻を手動で追加・修正できます。<br>
+        自動検出結果に問題がなければ「自動検出結果で確定」を押してください。
+    </div>
+
+    <!-- 波形キャンバス -->
+    <div style="position:relative; background:#050505; border-radius:4px; overflow-x:scroll; overflow-y:hidden; margin-bottom:10px;" id="wave-scroll-wrap">
+        <canvas id="waveReviewCanvas" style="display:block; height:120px;"></canvas>
+    </div>
+    <div style="font-size:0.62rem; color:#444; margin-bottom:10px; font-family:monospace;">
+        タップ: 発射マーク追加 　マーク上タップ: 削除 　横スクロール: 波形移動
+    </div>
+
+    <!-- 現在のショットタイムリスト -->
+    <div style="margin-bottom:12px;">
+        <div style="font-size:0.7rem; color:#888; margin-bottom:6px;">発射タイム一覧（タップで削除）</div>
+        <div id="review-shot-list" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+    </div>
+
+    <!-- 確定ボタン -->
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button onclick="confirmReviewedShots()" class="btn-main" style="flex:1; font-size:0.85rem;">
+            この内容で確定・解析へ進む
+        </button>
+        <button onclick="skipReviewAndConfirm()" class="btn-secondary" style="flex:1; font-size:0.75rem; color:#888;">
+            自動検出結果で確定
+        </button>
     </div>
 </div>
 
@@ -313,11 +348,11 @@
     <!-- モード切り替え -->
     <div class="preset-bar" style="margin-bottom:12px;">
         <button class="preset-btn" id="mode-btn-seal" onclick="setAnalysisMode('seal')">
-            <span class="preset-name">🔵 シールあり</span>
+            <span class="preset-name">シールあり</span>
             <span class="preset-desc">青色自動検出</span>
         </button>
         <button class="preset-btn active" id="mode-btn-manual" onclick="setAnalysisMode('manual')">
-            <span class="preset-name">👆 手動マーク</span>
+            <span class="preset-name">手動マーク</span>
             <span class="preset-desc">タップで弾痕指定</span>
         </button>
         </div>
@@ -325,7 +360,7 @@
     <!-- 手動モード設定 -->
     <div id="mode-panel-manual" style="display:block;">
         <div style="background:#0a0a14; border:1px solid #1a1a3a; border-radius:4px; padding:10px; margin-bottom:10px; font-size:0.7rem; color:#6a6aaa; line-height:1.7;">
-            👆 <strong style="color:#60a0ff;">タップ/クリックで弾痕を手動マーク</strong><br>
+            <strong style="color:#60a0ff;">タップ/クリックで弾痕を手動マーク</strong><br>
             画像を拡大してピンポイントでタップ。青シール検出で下書きして修正もできます。<br>
             <span style="color:#888;">ピンチ/ホイールで拡大縮小　ドラッグで移動　マークをタップで削除</span>
         </div>
@@ -336,16 +371,16 @@
             </div>
             <button id="btn-blue-suggest" onclick="runBlueSuggest()" 
                 style="background:#0a1a3a; border:1px solid #2244aa; color:#60a0ff; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer; flex:1;">
-                🔵 青シール自動検出（下書き）
+                青シール自動検出（下書き）
             </button>
             <button onclick="clearAllManualMarks()"
                 style="background:#1a0a0a; border:1px solid #441111; color:#ff6060; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
-                🗑 全消去
+                全消去
             </button>
         </div>
         <button id="btn-confirm-manual" onclick="confirmManualMarks()"
             style="width:100%; background:#003366; border:1px solid #0055aa; color:#60d0ff; padding:10px; border-radius:4px; font-size:0.85rem; font-weight:bold; cursor:pointer; margin-bottom:4px;">
-            ✅ マーク確定・スコア計算
+            マーク確定・スコア計算
         </button>
     </div>
 
@@ -381,7 +416,7 @@
 <!-- ===== HISTORY TAB ===== -->
 <div id="tab-history" class="tab-pane">
     <div class="card">
-        <h2>Performance Trend</h2>
+        <h2>1. Performance Trend</h2>
 
         <!-- 射距離構成フィルタ -->
         <div style="margin-bottom:10px;">
@@ -422,16 +457,16 @@
         </div>
     </div>
     <div class="card">
-        <h2>Session History</h2>
+        <h2>2. Session History</h2>
         <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
             <button onclick="selectAllHistorySessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">
-                ☑ 全選択
+                全選択
             </button>
             <button onclick="deselectAllHistorySessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">
-                ☐ 全解除
+                全解除
             </button>
             <button onclick="exportSelectedCSV()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#32d74b; color:#32d74b;">
-                📊 選択したセッションをCSV出力
+                選択したセッションをCSV出力
             </button>
             <span id="history-select-count" style="font-size:0.65rem; color:#444; font-family:monospace;"></span>
         </div>
@@ -442,7 +477,7 @@
 <!-- ===== ASSESSMENT TAB ===== -->
 <div id="tab-assessment" class="tab-pane">
     <div class="card">
-        <h2>⚔️ 3射撃要領 総合評価</h2>
+        <h2>TOTAL ASSESSMENT</h2>
         <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.7;">
             各射手の3シナリオ（至近射撃・制圧致命昼間・制圧致命夜間）の結果を集計し、評価する指標のみを均等荷重で総合グレードを算出します。<br>
             セッションを保存後、ここに自動反映されます。
@@ -465,14 +500,14 @@
 
     <!-- セッション比較 -->
     <div class="card">
-        <h2>Compare Sessions</h2>
+        <h2>1. Compare Sessions</h2>
         <div id="compare-select-area" class="compare-select"></div>
         <div id="compare-table-area"></div>
     </div>
 
     <!-- 仮想敵シミュレーション -->
     <div class="card">
-        <h2>⚔️ Combat Simulation</h2>
+        <h2>2. Combat Simulation</h2>
         <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.6;">
             モンテカルロ法（1,000試行）。セッションの種類に応じて比較する指標を自動選択します。<br>
             勝敗判定: <strong style="color:#aaa;">速度・精度・制御・暴露・適応</strong> の利用可能指標を均等荷重でスコア化
@@ -514,7 +549,7 @@
         <!-- 実行ボタン -->
         <button onclick="runCombatSim()"
             style="width:100%; background:#1a0a00; border:1px solid #ff6600; color:#ff9933; padding:12px; border-radius:4px; font-size:0.9rem; font-weight:bold; cursor:pointer; letter-spacing:1px;">
-            ▶ SIMULATE  1,000 ENGAGEMENTS
+            SIMULATE  1,000 ENGAGEMENTS
         </button>
 
         <!-- 結果表示 -->
@@ -543,7 +578,13 @@ let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
 let cumulativeHits = 0, individualGroupings = [], finalStats = {};
 let animFrameId = null;
 let lastShotTime = -999;
-let currentDeadTime = 0.07; // デフォルト: 実銃（0.07s）。ガスBBは0.15s
+let currentDeadTime = 0.10; // デフォルト: 実銃（0.10s）。ガスBBは0.20s
+
+// 波形録音バッファ（1000sps相当でRMSを蓄積）
+const WAVE_SPS = 200;          // 波形サンプリングレート（samples/s）
+let waveBuffer = [];           // [{t, rms}] — 射撃中に蓄積
+let waveSampleInterval = null;
+let reviewShotTimes = [];      // 手動レビュー用の発射時刻配列（autoまたは手動）
 
 // 高精度検出用バッファ
 const DETECT_BUFFER = 4;
@@ -787,7 +828,7 @@ function renderViz() {
 
 function checkShot() {
     const now = (performance.now() - startTime) / 1000;
-    if (now < 0.15) return;
+    if (now < 0.10) return;
     
     const rms = getRMSEnergy();
     energyHistory[energyIdx % DETECT_BUFFER] = rms;
@@ -825,10 +866,20 @@ function updateShotLog(t, reloadAt) {
 
 function finishEngagement() {
     isRunning = false;
+    if (waveSampleInterval) { clearInterval(waveSampleInterval); waveSampleInterval = null; }
     const btn = document.getElementById('startBtn');
     btn.innerText = "DONE";
     btn.classList.add('done');
-    document.getElementById('acquisition-area').style.display = 'block';
+    document.getElementById('finishBtn').style.display = 'none';
+    // 波形レビューパネルを表示
+    reviewShotTimes = [...shotTimes];
+    openWaveformReview();
+}
+
+// 強制終了（発数未到達でも終了）
+function forceFinishEngagement() {
+    if (!isRunning) return;
+    finishEngagement();
 }
 
 /* ═══════════════════════════════════════════
@@ -858,7 +909,7 @@ function initManualTarget(wrapper, file, targetIdx, rangeM) {
 
     const hint = document.createElement('div');
     hint.style.cssText = 'background:#0a0a0a; padding:5px 10px; font-size:0.65rem; color:#555; text-align:center;';
-    hint.textContent = 'タップ: マーク追加  ●タップ: 削除  ピンチ/ホイール: 拡大  ドラッグ: 移動';
+    hint.textContent = 'タップ: マーク追加  タップ(長押し): 削除  ピンチ/ホイール: 拡大  ドラッグ: 移動';
     wrapper.appendChild(hint);
 
     const img = new Image();
@@ -1119,15 +1170,15 @@ function confirmManualMarks() {
 }
 
 function setDeadTime(mode) {
-    currentDeadTime = mode === 'real' ? 0.07 : 0.15;
+    currentDeadTime = mode === 'real' ? 0.10 : 0.20;
     document.getElementById('dt-btn-real').style.fontWeight = mode === 'real' ? 'bold' : 'normal';
     document.getElementById('dt-btn-real').style.borderColor = mode === 'real' ? '#ffcc00' : '#444';
     document.getElementById('dt-btn-real').style.color = mode === 'real' ? '#ffcc00' : '#888';
-    document.getElementById('dt-btn-real').textContent = mode === 'real' ? '実銃 0.07s ✓' : '実銃 0.07s';
+    document.getElementById('dt-btn-real').textContent = mode === 'real' ? '実銃 0.10s [選択中]' : '実銃 0.10s';
     document.getElementById('dt-btn-gas').style.fontWeight = mode === 'gas' ? 'bold' : 'normal';
     document.getElementById('dt-btn-gas').style.borderColor = mode === 'gas' ? '#32d74b' : '#444';
     document.getElementById('dt-btn-gas').style.color = mode === 'gas' ? '#32d74b' : '#888';
-    document.getElementById('dt-btn-gas').textContent = mode === 'gas' ? 'ガスBB 0.15s ✓' : 'ガスBB 0.15s';
+    document.getElementById('dt-btn-gas').textContent = mode === 'gas' ? 'ガスBB 0.20s [選択中]' : 'ガスBB 0.20s';
 }
 
 function setAnalysisMode(mode) {
@@ -1399,11 +1450,11 @@ function generateAssessment() {
                 <div style="display:flex; gap:10px; align-items:center; padding:6px 0;">
                     <button id="ctrl-head-yes" onclick="setHeadshot(true)"
                         style="flex:1; padding:8px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.8rem;">
-                        ✅ 命中あり
+                        命中あり
                     </button>
                     <button id="ctrl-head-no" onclick="setHeadshot(false)"
                         style="flex:1; padding:8px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.8rem;">
-                        ❌ 命中なし
+                        命中なし
                     </button>
                 </div>
                 <div id="ctrl-head-result" style="font-size:0.72rem; color:#555; font-family:monospace; padding:2px 0;">
@@ -1508,7 +1559,7 @@ function generateAssessment() {
 
     area.innerHTML = `
         <div class="card">
-            <h2>4. 総合評価</h2>
+            <h2>4. Session Assessment</h2>
             <div style="font-size:0.7rem; color:#555; margin-bottom:10px; font-family:monospace;">
                 ${preset ? preset.label : 'カスタム'}
             </div>
@@ -1529,8 +1580,8 @@ function generateAssessment() {
             </div>
 
             <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
-                <button onclick="saveSession()" class="btn-secondary">💾 セッション保存</button>
-                <button onclick="exportFullCSV()" class="btn-secondary">📊 CSV出力</button>
+                <button onclick="saveSession()" class="btn-secondary">セッション保存</button>
+                <button onclick="exportFullCSV()" class="btn-secondary">CSV出力</button>
             </div>
         </div>
     `;
@@ -1548,7 +1599,7 @@ function setHeadshot(hit) {
     document.getElementById('ctrl-head-no').style.background = !hit ? '#330000' : '#111';
     document.getElementById('ctrl-head-no').style.borderColor = !hit ? '#ff3b30' : '#444';
     document.getElementById('ctrl-head-no').style.color = !hit ? '#ff3b30' : '#888';
-    document.getElementById('ctrl-head-result').textContent = hit ? '✅ 頭部命中あり — A' : '❌ 頭部命中なし — D';
+    document.getElementById('ctrl-head-result').textContent = hit ? '頭部命中あり — A' : '頭部命中なし — D';
     document.getElementById('ctrl-head-result').style.color = hit ? '#32d74b' : '#ff3b30';
     drawRadar();
 }
@@ -1996,7 +2047,7 @@ function renderAssessBody(sessions, shooter) {
         <button onclick="openCombatSimFromAssessment('${shooter}')"
             style="width:100%; background:#1a0a00; border:1px solid #ff6600; color:#ff9933;
                    padding:10px; border-radius:4px; font-size:0.85rem; font-weight:bold; cursor:pointer;">
-            ⚔️ この総合結果でCombat Simulationを実行
+            この総合結果でCombat Simulationを実行
         </button>
     </div>
     `;
@@ -2179,7 +2230,7 @@ function saveSession() {
     sessions.unshift(session);
     if (sessions.length > 20) sessions.splice(20);
     localStorage.setItem('mali_sessions', JSON.stringify(sessions));
-    alert('セッションを保存しました ✓');
+    alert('セッションを保存しました');
 }
 
 function getSessions() {
@@ -2511,7 +2562,7 @@ function renderHistory() {
             </div>
             <div style="font-size:0.7rem; color:#555; font-family:monospace;">${statsLine}</div>
             <div class="history-actions">
-                <button class="btn-secondary" onclick="exportSessionCSV(${s.id})" style="font-size:0.72rem;">📊 CSV</button>
+                <button class="btn-secondary" onclick="exportSessionCSV(${s.id})" style="font-size:0.72rem;">CSV</button>
                 <button class="btn-secondary btn-danger" onclick="deleteSession(${s.id})">削除</button>
             </div>
         </div>`;
@@ -2928,8 +2979,8 @@ function displaySimResult(r) {
     pctEl.textContent = r.winPct + '%';
     pctEl.style.color = winN>=70?'#32d74b':winN>=50?'#ffcc00':winN>=30?'#ff9500':'#ff3b30';
 
-    const verdicts = [[80,'🟢 DOMINANT  圧倒的優位'],[65,'🟡 FAVORABLE  有利'],
-                      [50,'🟠 CONTESTED  拮抗'],[35,'🔴 DISADVANTAGED  不利'],[0,'💀 CRITICAL  危険域']];
+    const verdicts = [[80,'DOMINANT  圧倒的優位'],[65,'FAVORABLE  有利'],
+                      [50,'CONTESTED  拮抗'],[35,'DISADVANTAGED  不利'],[0,'CRITICAL  危険域']];
     const v = verdicts.find(([t]) => winN >= t);
     const vEl = document.getElementById('sim-verdict');
     vEl.textContent = v ? v[1] : '';
@@ -2974,6 +3025,178 @@ function initCompareTab() {
 /* ═══════════════════════════════════════════
    CSV EXPORT
 ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   波形レビュー & 手動ショット補正
+═══════════════════════════════════════════ */
+
+const WAVE_PX_PER_SEC = 120;   // 表示解像度: 1秒=120px
+
+function openWaveformReview() {
+    const area = document.getElementById('waveform-review-area');
+    area.style.display = 'block';
+    area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    renderWaveReview();
+}
+
+function renderWaveReview() {
+    renderReviewShotList();
+    drawWaveReviewCanvas();
+}
+
+// ── ショットタイムリスト表示 ──
+function renderReviewShotList() {
+    const el = document.getElementById('review-shot-list');
+    if (!reviewShotTimes.length) {
+        el.innerHTML = '<span style="color:#333; font-size:0.72rem;">発射タイムなし</span>';
+        return;
+    }
+    el.innerHTML = reviewShotTimes.map((t, i) =>
+        `<span onclick="removeReviewShot(${i})"
+            style="background:#1a1a1a; border:1px solid #333; color:#ffcc00;
+                   padding:4px 8px; border-radius:4px; font-family:monospace;
+                   font-size:0.72rem; cursor:pointer; user-select:none;"
+            title="タップで削除">
+            #${i+1} ${t.toFixed(2)}s
+        </span>`
+    ).join('');
+}
+
+function removeReviewShot(idx) {
+    reviewShotTimes.splice(idx, 1);
+    renderWaveReview();
+}
+
+// ── 波形キャンバス描画 ──
+function drawWaveReviewCanvas() {
+    const cvs = document.getElementById('waveReviewCanvas');
+    if (!cvs || !waveBuffer.length) return;
+
+    const totalSec = waveBuffer[waveBuffer.length - 1].t + 0.5;
+    const W = Math.max(400, Math.ceil(totalSec * WAVE_PX_PER_SEC));
+    const H = 120;
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width  = W * dpr;
+    cvs.height = H * dpr;
+    cvs.style.width  = W + 'px';
+    cvs.style.height = H + 'px';
+
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    // 背景グリッド（1秒ごと）
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+    for (let s = 0; s <= totalSec; s++) {
+        const x = s * WAVE_PX_PER_SEC;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        ctx.fillStyle = '#333'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+        ctx.fillText(s + 's', x + 2, 10);
+    }
+
+    // 波形（RMS）
+    ctx.beginPath(); ctx.strokeStyle = '#336655'; ctx.lineWidth = 1;
+    waveBuffer.forEach(({ t, rms }, i) => {
+        const x = t * WAVE_PX_PER_SEC;
+        const y = H - rms * H;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // 閾値ライン
+    const th = parseFloat(document.getElementById('mic-sens').value);
+    ctx.strokeStyle = 'rgba(255,100,50,0.5)'; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    const thY = H - th * H;
+    ctx.beginPath(); ctx.moveTo(0, thY); ctx.lineTo(W, thY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 発射マーカー
+    reviewShotTimes.forEach((t, i) => {
+        const x = t * WAVE_PX_PER_SEC;
+        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('#' + (i+1), x, H - 4);
+    });
+
+    // タッチ/クリックイベント（一度だけ登録）
+    if (!cvs._waveListenerAttached) {
+        cvs._waveListenerAttached = true;
+        const hitRadius = 8;
+
+        const getTimeFromEvent = (e) => {
+            const rect = cvs.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const xPx = clientX - rect.left;
+            return xPx / WAVE_PX_PER_SEC;
+        };
+
+        cvs.addEventListener('click', (e) => {
+            const t = getTimeFromEvent(e);
+            if (t < 0 || t > totalSec) return;
+
+            // 既存マーカーに近い場合は削除
+            const hitIdx = reviewShotTimes.findIndex(st => Math.abs(st - t) * WAVE_PX_PER_SEC < hitRadius);
+            if (hitIdx !== -1) {
+                reviewShotTimes.splice(hitIdx, 1);
+            } else {
+                // 追加してソート
+                reviewShotTimes.push(t);
+                reviewShotTimes.sort((a, b) => a - b);
+            }
+            renderWaveReview();
+        });
+
+        cvs.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const rect = cvs.getBoundingClientRect();
+            const touch = e.changedTouches[0];
+            const xPx = touch.clientX - rect.left;
+            const t = xPx / WAVE_PX_PER_SEC;
+            if (t < 0 || t > totalSec) return;
+
+            const hitIdx = reviewShotTimes.findIndex(st => Math.abs(st - t) * WAVE_PX_PER_SEC < hitRadius * 2);
+            if (hitIdx !== -1) {
+                reviewShotTimes.splice(hitIdx, 1);
+            } else {
+                reviewShotTimes.push(t);
+                reviewShotTimes.sort((a, b) => a - b);
+            }
+            renderWaveReview();
+        }, { passive: false });
+    }
+}
+
+// ── 手動補正結果で確定して解析へ ──
+function confirmReviewedShots() {
+    if (!reviewShotTimes.length) {
+        alert('発射タイムが1件もありません。波形をタップして追加してください。');
+        return;
+    }
+    shotTimes = [...reviewShotTimes];
+    document.getElementById('waveform-review-area').style.display = 'none';
+    document.getElementById('acquisition-area').style.display = 'block';
+    document.getElementById('acquisition-area').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // shot-log を更新
+    const log = document.getElementById('shot-log');
+    log.innerHTML = '';
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value) || 0;
+    shotTimes.forEach((t, i) => {
+        const badge = document.createElement('span');
+        const isReload = reloadAt > 0 && i === reloadAt;
+        badge.className = 'shot-badge' + (isReload ? ' reload-badge' : '');
+        const split = i > 0 ? (t - shotTimes[i-1]).toFixed(2) : null;
+        badge.textContent = `#${i+1} ${t.toFixed(2)}s` + (split ? ` (+${split})` : '');
+        log.appendChild(badge);
+    });
+}
+
+// ── 自動検出結果のまま確定 ──
+function skipReviewAndConfirm() {
+    reviewShotTimes = [...shotTimes];
+    confirmReviewedShots();
+}
+
 // ── History チェックボックス操作 ──
 function onHistoryCheckChange() {
     const checked = document.querySelectorAll('#history-list input[type=checkbox]:checked').length;
@@ -3120,27 +3343,40 @@ document.getElementById('startBtn').onclick = async () => {
         alert('マイクへのアクセスが拒否されました。設定を確認してください。');
         btn.disabled = false; return;
     }
-    shotTimes = []; lastShotTime = -999;
+    shotTimes = []; lastShotTime = -999; waveBuffer = []; reviewShotTimes = [];
     document.getElementById('shot-log').innerHTML = '';
     document.getElementById('timer-val').innerText = "STANDBY";
     document.getElementById('timer-val').style.color = '#ffcc00';
+    document.getElementById('waveform-review-area').style.display = 'none';
+    document.getElementById('acquisition-area').style.display = 'none';
     btn.innerText = "STANDBY...";
     btn.classList.remove('done');
 
     const delay = 2000 + Math.random() * 2000;
     setTimeout(() => {
-        // スタートビープ
+        // スタートビープ: iOSは音量1.5倍
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.frequency.value = 880; gain.gain.value = 0.3;
+        osc.frequency.value = 880;
+        gain.gain.value = isIOS ? 0.45 : 0.30;  // iOS: 0.3×1.5=0.45
         osc.start(); osc.stop(audioCtx.currentTime + 0.15);
 
         startTime = performance.now(); isRunning = true;
         document.getElementById('timer-val').innerText = "0.00";
         document.getElementById('timer-val').style.color = '#32d74b';
-        btn.innerText = "●  RECORDING";
+        btn.innerText = "RECORDING";
         btn.disabled = false;
+        document.getElementById('finishBtn').style.display = 'block';
+
+        // 波形バッファへの蓄積開始
+        waveSampleInterval = setInterval(() => {
+            if (!isRunning || !analyser) return;
+            analyser.getByteTimeDomainData(dataArray);
+            const t = (performance.now() - startTime) / 1000;
+            waveBuffer.push({ t, rms: getRMSEnergy() });
+        }, 1000 / WAVE_SPS);
     }, delay);
 };
 
