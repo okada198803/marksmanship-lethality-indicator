@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver60 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver55 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -211,7 +211,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver60</h1>
+    <h1 class="app-title-main">MaLI ver55</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -302,6 +302,14 @@
     </div>
     <div id="timer-val">0.00</div>
     <div class="shot-log" id="shot-log"></div>
+    <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        <label style="font-size:0.68rem; color:#666; display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="chk-auto-finish" checked
+                style="width:14px; height:14px; accent-color:var(--primary); cursor:pointer;">
+            発数到達で自動終了
+        </label>
+        <span style="font-size:0.62rem; color:#444;">OFFにすると波形を取り続けます</span>
+    </div>
     <div style="margin-top: 10px; display:flex; gap:8px; flex-wrap:wrap;">
         <button id="startBtn" class="btn-main" style="flex:1;">START</button>
         <button id="finishBtn" onclick="forceFinishEngagement()" style="display:none; flex:1;"
@@ -453,7 +461,7 @@
             <canvas id="trendCanvas" style="width:100%; height:180px; display:block;"></canvas>
         </div>
         <div id="trend-empty" style="display:none; text-align:center; color:#444; font-size:0.75rem; font-family:monospace; padding:30px 0;">
-            同一射距離構成のセッションが2件以上保存されるとグラフが表示されます
+            セッションを保存するとグラフが表示されます
         </div>
     </div>
     <div class="card">
@@ -467,6 +475,13 @@
             </button>
             <button onclick="exportSelectedCSV()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#32d74b; color:#32d74b;">
                 選択したセッションをCSV出力
+            </button>
+            <button onclick="document.getElementById('csv-import-input').click()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#0099ff; color:#0099ff;">
+                CSVからインポート
+            </button>
+            <input type="file" id="csv-import-input" accept=".csv" style="display:none;" onchange="importSessionsFromCSV(this)">
+            <button onclick="generateSampleData()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#555; color:#555;">
+                サンプルデータ生成
             </button>
             <span id="history-select-count" style="font-size:0.65rem; color:#444; font-family:monospace;"></span>
         </div>
@@ -848,7 +863,8 @@ function checkShot() {
         tv.innerText = now.toFixed(2);
         tv.classList.add('shot-flash');
         setTimeout(() => tv.classList.remove('shot-flash'), 120);
-        if (shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
+        const autoFinish = document.getElementById('chk-auto-finish')?.checked !== false;
+        if (autoFinish && shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
     }
 }
 
@@ -2325,7 +2341,7 @@ function drawTrendGraph() {
         ? allSessions.filter(s => (s.range || '?') === currentTrendRange)
         : allSessions;
 
-    if (sessions.length < 2) {
+    if (sessions.length < 1) {
         cvs.style.display = 'none';
         if (emptyEl) emptyEl.style.display = 'block';
         return;
@@ -3304,6 +3320,214 @@ function exportSelectedCSV() {
     a.href = URL.createObjectURL(blob);
     a.download = `MaLI_Export_${now}.csv`;
     a.click();
+}
+
+/* ═══════════════════════════════════════════
+   CSV IMPORT & SAMPLE DATA
+═══════════════════════════════════════════ */
+
+function importSessionsFromCSV(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { alert('データが見つかりません。'); return; }
+
+        const headers = parseCSVLine(lines[0]);
+        const sessions = getSessions();
+        let imported = 0, skipped = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const vals = parseCSVLine(lines[i]);
+            if (vals.length < 5) continue;
+
+            const row = {};
+            headers.forEach((h, idx) => { row[h] = vals[idx] || ''; });
+
+            // 重複チェック（同一ShooterID+Timestamp）
+            const exists = sessions.some(s =>
+                s.shooter === row['ShooterID'] && s.timestamp === row['Timestamp']);
+            if (exists) { skipped++; continue; }
+
+            // ショットタイムを復元
+            const shotTimes = [];
+            for (let k = 1; k <= 20; k++) {
+                const v = row[`Shot${k}_s`];
+                if (v && !isNaN(parseFloat(v))) shotTimes.push(parseFloat(v));
+            }
+
+            // stats を再構築
+            const avgSplit = parseFloat(row['AvgSplit_s']) || 0;
+            const totalTime = parseFloat(row['TotalTime_s']) || 0;
+            const hits = parseInt(row['Hits_Count'] || row['Hits']) || 0;
+            const group = parseFloat(row['MaxGrouping_cm']) || 0;
+            const ctlVal = parseFloat(row['Control_Val']) || 0;
+
+            const stats = {
+                speed: {
+                    split: { val: avgSplit, grade: row['Split_Grade'] || 'B' },
+                    total: { val: totalTime, grade: row['TotalTime_Grade'] || 'B' },
+                    first: { val: shotTimes[0] || 0, grade: 'B' },
+                },
+                accuracy: {
+                    hits:  { val: hits,  grade: row['Hits_Grade'] || 'B' },
+                    group: { val: group, grade: row['Grouping_Grade'] || 'B' },
+                },
+                control: {
+                    split:  { val: avgSplit, grade: row['Split_Grade'] || 'B' },
+                    reload: { val: ctlVal,   grade: row['Control_Grade'] || 'B' },
+                    headshot: row['Control_Grade'] === 'A' || row['Control_Grade'] === 'D'
+                        ? { val: row['Control_Grade'] === 'A' ? 1 : 0, grade: row['Control_Grade'] }
+                        : null,
+                },
+                exposure: {
+                    total: { val: totalTime, grade: row['TotalTime_Grade'] || 'B' },
+                    checkGrade: row['Exposure_Grade'] || null,
+                },
+                adapt: { grade: row['Adapt_Grade'] || null },
+                scenarioType: row['ScenarioType'] === '至近射撃(姿勢変換)' ? 'posture'
+                    : row['ScenarioType'] === '制圧致命(昼間)' ? 'suppress_day'
+                    : row['ScenarioType'] === '制圧致命(夜間)' ? 'suppress_night'
+                    : 'custom',
+            };
+
+            const session = {
+                id: Date.now() + i,
+                shooter: row['ShooterID'] || 'IMPORT',
+                range: row['Range_m'] || '25',
+                rangeArr: [],
+                preset: stats.scenarioType,
+                scenarioType: stats.scenarioType,
+                timestamp: row['Timestamp'] || new Date().toLocaleString('ja-JP'),
+                shotTimes,
+                stats,
+                groupings: [group],
+                hits,
+            };
+            sessions.unshift(session);
+            imported++;
+        }
+
+        // 最大50件（インポート分を考慮して拡張）
+        if (sessions.length > 50) sessions.splice(50);
+        localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+        input.value = '';
+        renderHistory();
+        setTimeout(drawTrendGraph, 60);
+        alert(`インポート完了: ${imported}件追加、${skipped}件重複スキップ`);
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
+// CSVの1行をパース（ダブルクォート対応）
+function parseCSVLine(line) {
+    const result = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+            if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+            else inQ = !inQ;
+        } else if (c === ',' && !inQ) {
+            result.push(cur); cur = '';
+        } else {
+            cur += c;
+        }
+    }
+    result.push(cur);
+    return result;
+}
+
+// ── サンプルデータ生成（30件）──
+function generateSampleData() {
+    if (!confirm('30件のサンプルデータを生成します。既存データは保持されます。よろしいですか？')) return;
+
+    const sessions = getSessions();
+    const STYPES = ['posture', 'suppress_day', 'suppress_night'];
+    const SHOOTERS = ['A-01', 'A-02', 'B-01'];
+    const GS = ['A','B','B','B','C'];  // グレード分布
+
+    const rnd = (min, max) => min + Math.random() * (max - min);
+    const randG = () => GS[Math.floor(Math.random() * GS.length)];
+    const gToV = (g, goal, lower) => {
+        const ratio = g==='A'?(lower?0.80:1.15):g==='B'?(lower?1.00:1.00):g==='C'?(lower?1.25:0.80):g==='D'?(lower?1.50:0.60):1.0;
+        return parseFloat((goal * ratio * (0.9 + Math.random()*0.2)).toFixed(2));
+    };
+
+    const baseDate = new Date('2025-01-01');
+
+    for (let i = 0; i < 30; i++) {
+        const stype = STYPES[i % 3];
+        const shooter = SHOOTERS[i % 3];
+        const d = new Date(baseDate); d.setDate(d.getDate() + Math.floor(i/3)*7 + (i%3)*2);
+        const ts = d.toLocaleString('ja-JP');
+
+        const goalSplit  = stype==='posture'?2.0:stype==='suppress_day'?0.8:1.5;
+        const goalTotal  = stype==='posture'?30:stype==='suppress_day'?5:8;
+        const goalGroup  = stype==='posture'?20:stype==='suppress_day'?10:15;
+        const goalHits   = stype==='posture'?8:3;
+        const totalShots = stype==='posture'?10:5;
+
+        const splitG = randG(), totalG = randG(), groupG = randG(), hitsG = randG();
+        const avgSplit  = gToV(splitG,  goalSplit,  true);
+        const totalTime = gToV(totalG,  goalTotal,  true);
+        const group     = gToV(groupG,  goalGroup,  true);
+        const hits      = Math.min(totalShots, Math.max(0, Math.round(gToV(hitsG, goalHits, false))));
+
+        // ショットタイム生成
+        const shotTimes = [];
+        let t = rnd(0.8, 2.0);
+        shotTimes.push(parseFloat(t.toFixed(2)));
+        for (let s = 1; s < totalShots; s++) {
+            t += rnd(avgSplit*0.8, avgSplit*1.2);
+            shotTimes.push(parseFloat(t.toFixed(2)));
+        }
+
+        const ctlG = randG();
+        const expG = stype==='posture' ? randG() : null;
+        const adpG = stype==='suppress_night' ? randG() : null;
+
+        const stats = {
+            speed: {
+                split: { val: avgSplit,  goal: goalSplit,  grade: splitG },
+                total: { val: totalTime, goal: goalTotal,  grade: totalG },
+                first: { val: shotTimes[0], goal: 1.0, grade: 'B' },
+            },
+            accuracy: {
+                hits:  { val: hits,  goal: goalHits,  grade: hitsG },
+                group: { val: group, goal: goalGroup, grade: groupG },
+            },
+            control: {
+                split:    { val: avgSplit, goal: goalSplit, grade: splitG },
+                reload:   { val: stype==='posture'?rnd(2,5):0, goal:4, grade: ctlG },
+                headshot: stype!=='posture' ? { val: ctlG==='A'?1:0, grade: ctlG } : null,
+            },
+            exposure: {
+                total: { val: totalTime, goal: goalTotal, grade: totalG },
+                checkGrade: expG,
+            },
+            adapt: { grade: adpG, val: adpG ? rnd(-0.1, 0.35) : null },
+            scenarioType: stype,
+        };
+
+        sessions.unshift({
+            id: Date.now() + i * 137,
+            shooter, range: stype==='posture'?'25':'10',
+            rangeArr: [],
+            preset: stype, scenarioType: stype,
+            timestamp: ts,
+            shotTimes, stats,
+            groupings: [group], hits,
+        });
+    }
+
+    if (sessions.length > 50) sessions.splice(50);
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    renderHistory();
+    setTimeout(drawTrendGraph, 60);
+    alert('30件のサンプルデータを生成しました。');
 }
 
 function exportFullCSV() {
