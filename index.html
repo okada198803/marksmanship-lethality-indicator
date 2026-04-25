@@ -3143,6 +3143,3585 @@ function drawWaveReviewCanvas() {
             return xPx / WAVE_PX_PER_SEC;
         };
 
+        // タップ判定用の状態変数（スクロールと区別）
+        let _touchStartX = 0, _touchStartY = 0, _touchStartTime = 0, _touchMoved = false;
+        const TAP_MAX_MOVE_PX  = 10;  // この移動量以下ならタップとみなす
+        const TAP_MAX_DURATION = 1000; // 1秒未満ならタップとみなす
+
+        // PC マウスクリック（スクロールなし）
+        cvs.addEventListener('click', (e) => {
+            const t = getTimeFromEvent(e);
+            if (t < 0 || t > totalSec) return;
+            const hitIdx = reviewShotTimes.findIndex(st => Math.abs(st - t) * WAVE_PX_PER_SEC < hitRadius);
+            if (hitIdx !== -1) {
+                reviewShotTimes.splice(hitIdx, 1);
+            } else {
+                reviewShotTimes.push(t);
+                reviewShotTimes.sort((a, b) => a - b);
+            }
+            renderWaveReview();
+        });
+
+        // タッチ開始: 位置と時刻を記録
+        cvs.addEventListener('touchstart', (e) => {
+            const t0 = e.touches[0];
+            _touchStartX    = t0.clientX;
+            _touchStartY    = t0.clientY;
+            _touchStartTime = performance.now();
+            _touchMoved     = false;
+        }, { passive: true });
+
+        // タッチ移動: 一定量動いたらスクロールフラグを立てる
+        cvs.addEventListener('touchmove', (e) => {
+            const dx = Math.abs(e.touches[0].clientX - _touchStartX);
+            const dy = Math.abs(e.touches[0].clientY - _touchStartY);
+            if (dx > TAP_MAX_MOVE_PX || dy > TAP_MAX_MOVE_PX) _touchMoved = true;
+        }, { passive: true });
+
+        // タッチ終了: スクロールなし & 短時間ならタップとして処理
+        cvs.addEventListener('touchend', (e) => {
+            const duration = performance.now() - _touchStartTime;
+
+            // スクロール（移動あり）または長押し（1秒以上）はスキップ
+            if (_touchMoved || duration >= TAP_MAX_DURATION) return;
+
+            e.preventDefault(); // タップ時のみ ghost click を防止
+            const rect  = cvs.getBoundingClientRect();
+            const touch = e.changedTouches[0];
+            const xPx   = touch.clientX - rect.left;
+            const t     = xPx / WAVE_PX_PER_SEC;
+            if (t < 0 || t > totalSec) return;
+
+            const hitIdx = reviewShotTimes.findIndex(st => Math.abs(st - t) * WAVE_PX_PER_SEC < hitRadius * 2);
+            if (hitIdx !== -1) {
+                reviewShotTimes.splice(hitIdx, 1);
+            } else {
+                reviewShotTimes.push(t);
+                reviewShotTimes.sort((a, b) => a - b);
+            }
+            renderWaveReview();
+        }, { passive: false });
+    }
+}
+
+// ── 手動補正結果で確定して解析へ ──
+function confirmReviewedShots() {
+    if (!reviewShotTimes.length) {
+        alert('発射タイムが1件もありません。波形をタップして追加してください。');
+        return;
+    }
+    shotTimes = [...reviewShotTimes];
+    document.getElementById('waveform-review-area').style.display = 'none';
+    document.getElementById('acquisition-area').style.display = 'block';
+    document.getElementById('acquisition-area').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // shot-log を更新
+    const log = document.getElementById('shot-log');
+    log.innerHTML = '';
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value) || 0;
+    shotTimes.forEach((t, i) => {
+        const badge = document.createElement('span');
+        const isReload = reloadAt > 0 && i === reloadAt;
+        badge.className = 'shot-badge' + (isReload ? ' reload-badge' : '');
+        const split = i > 0 ? (t - shotTimes[i-1]).toFixed(2) : null;
+        badge.textContent = `#${i+1} ${t.toFixed(2)}s` + (split ? ` (+${split})` : '');
+        log.appendChild(badge);
+    });
+}
+
+// ── 自動検出結果のまま確定 ──
+function skipReviewAndConfirm() {
+    reviewShotTimes = [...shotTimes];
+    confirmReviewedShots();
+}
+
+// ── History チェックボックス操作 ──
+function deleteSelectedSessions() {
+    const checked = [...document.querySelectorAll('#history-list input[type=checkbox]:checked')];
+    if (!checked.length) { alert('削除するセッションを選択してください。'); return; }
+    if (!confirm(`${checked.length}件のセッションを削除します。この操作は元に戻せません。`)) return;
+    const ids = new Set(checked.map(c => parseInt(c.id.replace('hchk-', ''))));
+    let sessions = getSessions().filter(s => !ids.has(s.id));
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    renderHistory();
+    setTimeout(drawTrendGraph, 60);
+}
+
+function onHistoryCheckChange() {
+    const checked = document.querySelectorAll('#history-list input[type=checkbox]:checked').length;
+    const total   = document.querySelectorAll('#history-list input[type=checkbox]').length;
+    const el = document.getElementById('history-select-count');
+    if (el) el.textContent = checked ? `${checked}件選択中` : '';
+}
+
+function selectAllHistorySessions() {
+    document.querySelectorAll('#history-list input[type=checkbox]').forEach(c => c.checked = true);
+    onHistoryCheckChange();
+}
+
+function deselectAllHistorySessions() {
+    document.querySelectorAll('#history-list input[type=checkbox]').forEach(c => c.checked = false);
+    onHistoryCheckChange();
+}
+
+// ── セッションデータからCSV行を生成（共通） ──
+function sessionToCSVRow(s) {
+    const stats = s.stats || {};
+    const stype = s.scenarioType || 'custom';
+    const SLABEL = { posture:'至近射撃(姿勢変換)', suppress_day:'制圧致命(昼間)', suppress_night:'制圧致命(夜間)', custom:'カスタム' };
+
+    const vals = [
+        s.timestamp,
+        s.shooter,
+        SLABEL[stype] || stype,
+        s.shotTimes?.length || 0,
+        s.hits || 0,
+        // 速度
+        stats.speed?.split?.val?.toFixed(2)  || '',
+        stats.speed?.split?.grade            || '',
+        stats.speed?.total?.val?.toFixed(2)  || '',
+        stats.speed?.total?.grade            || '',
+        // 精度
+        stats.accuracy?.hits?.val            || '',
+        stats.accuracy?.hits?.grade          || '',
+        stats.accuracy?.group?.val?.toFixed(2) || '',
+        stats.accuracy?.group?.grade         || '',
+        // 制御
+        stats.control?.reload?.val?.toFixed(2) || stats.control?.headshot?.val || '',
+        stats.control?.reload?.grade || stats.control?.headshot?.grade || '',
+        // 暴露
+        stats.exposure?.checkGrade           || '',
+        // 適応
+        stats.adapt?.grade                   || '',
+        // 射距離
+        s.range || '',
+        // 各弾タイム
+        ...(s.shotTimes || []).map(t => t.toFixed(2)),
+    ];
+    return vals.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+}
+
+// ── 単一セッションCSV出力 ──
+function exportSessionCSV(id) {
+    const s = getSessions().find(s => s.id === id);
+    if (!s) return;
+    const headers = [
+        'Timestamp','ShooterID','ScenarioType','TotalShots','Hits',
+        'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
+        'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
+        'Control_Val','Control_Grade',
+        'Exposure_Grade','Adapt_Grade',
+        'Range_m',
+    ];
+    const totalShots = s.shotTimes?.length || 0;
+    for (let i = 1; i <= totalShots; i++) headers.push(`Shot${i}_s`);
+
+    const csv = '\uFEFF' + headers.join(',') + '\n' + sessionToCSVRow(s);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `MaLI_${s.shooter}_${s.timestamp.slice(0,10).replace(/\//g,'-')}.csv`;
+    a.click();
+}
+
+// ── 選択セッションまとめてCSV出力 ──
+function exportSelectedCSV() {
+    const checked = [...document.querySelectorAll('#history-list input[type=checkbox]:checked')];
+    if (!checked.length) { alert('出力するセッションを選択してください。'); return; }
+
+    const ids = new Set(checked.map(c => parseInt(c.id.replace('hchk-', ''))));
+    const sessions = getSessions().filter(s => ids.has(s.id));
+    if (!sessions.length) return;
+
+    // 最大弾数に合わせてヘッダーを動的生成
+    const maxShots = Math.max(...sessions.map(s => s.shotTimes?.length || 0));
+    const headers = [
+        'Timestamp','ShooterID','ScenarioType','TotalShots','Hits',
+        'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
+        'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
+        'Control_Val','Control_Grade',
+        'Exposure_Grade','Adapt_Grade',
+        'Range_m',
+    ];
+    for (let i = 1; i <= maxShots; i++) headers.push(`Shot${i}_s`);
+
+    const rows = sessions.map(s => sessionToCSVRow(s));
+    const csv = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    const now = new Date().toLocaleDateString('ja-JP').replace(/\//g,'-');
+    a.href = URL.createObjectURL(blob);
+    a.download = `MaLI_Export_${now}.csv`;
+    a.click();
+}
+
+/* ═══════════════════════════════════════════
+   CSV IMPORT & SAMPLE DATA
+═══════════════════════════════════════════ */
+
+function importSessionsFromCSV(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { alert('データが見つかりません。'); return; }
+
+        const headers = parseCSVLine(lines[0]);
+        const sessions = getSessions();
+        let imported = 0, skipped = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const vals = parseCSVLine(lines[i]);
+            if (vals.length < 5) continue;
+
+            const row = {};
+            headers.forEach((h, idx) => { row[h] = vals[idx] || ''; });
+
+            // 重複チェック（同一ShooterID+Timestamp）
+            const exists = sessions.some(s =>
+                s.shooter === row['ShooterID'] && s.timestamp === row['Timestamp']);
+            if (exists) { skipped++; continue; }
+
+            // ショットタイムを復元
+            const shotTimes = [];
+            for (let k = 1; k <= 20; k++) {
+                const v = row[`Shot${k}_s`];
+                if (v && !isNaN(parseFloat(v))) shotTimes.push(parseFloat(v));
+            }
+
+            // stats を再構築
+            const avgSplit = parseFloat(row['AvgSplit_s']) || 0;
+            const totalTime = parseFloat(row['TotalTime_s']) || 0;
+            const hits = parseInt(row['Hits_Count'] || row['Hits']) || 0;
+            const group = parseFloat(row['MaxGrouping_cm']) || 0;
+            const ctlVal = parseFloat(row['Control_Val']) || 0;
+
+            const stats = {
+                speed: {
+                    split: { val: avgSplit, grade: row['Split_Grade'] || 'B' },
+                    total: { val: totalTime, grade: row['TotalTime_Grade'] || 'B' },
+                    first: { val: shotTimes[0] || 0, grade: 'B' },
+                },
+                accuracy: {
+                    hits:  { val: hits,  grade: row['Hits_Grade'] || 'B' },
+                    group: { val: group, grade: row['Grouping_Grade'] || 'B' },
+                },
+                control: {
+                    split:  { val: avgSplit, grade: row['Split_Grade'] || 'B' },
+                    reload: { val: ctlVal,   grade: row['Control_Grade'] || 'B' },
+                    headshot: row['Control_Grade'] === 'A' || row['Control_Grade'] === 'D'
+                        ? { val: row['Control_Grade'] === 'A' ? 1 : 0, grade: row['Control_Grade'] }
+                        : null,
+                },
+                exposure: {
+                    total: { val: totalTime, grade: row['TotalTime_Grade'] || 'B' },
+                    checkGrade: row['Exposure_Grade'] || null,
+                },
+                adapt: { grade: row['Adapt_Grade'] || null },
+                scenarioType: row['ScenarioType'] === '至近射撃(姿勢変換)' ? 'posture'
+                    : row['ScenarioType'] === '制圧致命(昼間)' ? 'suppress_day'
+                    : row['ScenarioType'] === '制圧致命(夜間)' ? 'suppress_night'
+                    : 'custom',
+            };
+
+            const session = {
+                id: Date.now() + i,
+                shooter: row['ShooterID'] || 'IMPORT',
+                range: row['Range_m'] || '25',
+                rangeArr: [],
+                preset: stats.scenarioType,
+                scenarioType: stats.scenarioType,
+                timestamp: row['Timestamp'] || new Date().toLocaleString('ja-JP'),
+                shotTimes,
+                stats,
+                groupings: [group],
+                hits,
+            };
+            sessions.unshift(session);
+            imported++;
+        }
+
+        // 最大50件（インポート分を考慮して拡張）
+        if (sessions.length > 50) sessions.splice(50);
+        localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+        input.value = '';
+        renderHistory();
+        setTimeout(drawTrendGraph, 60);
+        alert(`インポート完了: ${imported}件追加、${skipped}件重複スキップ`);
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
+// CSVの1行をパース（ダブルクォート対応）
+function parseCSVLine(line) {
+    const result = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+            if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+            else inQ = !inQ;
+        } else if (c === ',' && !inQ) {
+            result.push(cur); cur = '';
+        } else {
+            cur += c;
+        }
+    }
+    result.push(cur);
+    return result;
+}
+
+// ── サンプルデータ生成（30件）──
+function generateSampleData() {
+    if (!confirm('30件のサンプルデータを生成します。既存データは保持されます。よろしいですか？')) return;
+
+    const sessions = getSessions();
+    const STYPES = ['posture', 'suppress_day', 'suppress_night'];
+    const SHOOTERS = ['A-01', 'A-02', 'B-01'];
+    const GS = ['A','B','B','B','C'];  // グレード分布
+
+    const rnd = (min, max) => min + Math.random() * (max - min);
+    const randG = () => GS[Math.floor(Math.random() * GS.length)];
+    const gToV = (g, goal, lower) => {
+        const ratio = g==='A'?(lower?0.80:1.15):g==='B'?(lower?1.00:1.00):g==='C'?(lower?1.25:0.80):g==='D'?(lower?1.50:0.60):1.0;
+        return parseFloat((goal * ratio * (0.9 + Math.random()*0.2)).toFixed(2));
+    };
+
+    const baseDate = new Date('2025-01-01');
+
+    for (let i = 0; i < 30; i++) {
+        const stype = STYPES[i % 3];
+        const shooter = SHOOTERS[i % 3];
+        const d = new Date(baseDate); d.setDate(d.getDate() + Math.floor(i/3)*7 + (i%3)*2);
+        const ts = d.toLocaleString('ja-JP');
+
+        const goalSplit  = stype==='posture'?2.0:stype==='suppress_day'?0.8:1.5;
+        const goalTotal  = stype==='posture'?30:stype==='suppress_day'?5:8;
+        const goalGroup  = stype==='posture'?20:stype==='suppress_day'?10:15;
+        const goalHits   = stype==='posture'?8:3;
+        const totalShots = stype==='posture'?10:5;
+
+        const splitG = randG(), totalG = randG(), groupG = randG(), hitsG = randG();
+        const avgSplit  = gToV(splitG,  goalSplit,  true);
+        const totalTime = gToV(totalG,  goalTotal,  true);
+        const group     = gToV(groupG,  goalGroup,  true);
+        const hits      = Math.min(totalShots, Math.max(0, Math.round(gToV(hitsG, goalHits, false))));
+
+        // ショットタイム生成
+        const shotTimes = [];
+        let t = rnd(0.8, 2.0);
+        shotTimes.push(parseFloat(t.toFixed(2)));
+        for (let s = 1; s < totalShots; s++) {
+            t += rnd(avgSplit*0.8, avgSplit*1.2);
+            shotTimes.push(parseFloat(t.toFixed(2)));
+        }
+
+        const ctlG = randG();
+        const expG = stype==='posture' ? randG() : null;
+        const adpG = stype==='suppress_night' ? randG() : null;
+
+        const stats = {
+            speed: {
+                split: { val: avgSplit,  goal: goalSplit,  grade: splitG },
+                total: { val: totalTime, goal: goalTotal,  grade: totalG },
+                first: { val: shotTimes[0], goal: 1.0, grade: 'B' },
+            },
+            accuracy: {
+                hits:  { val: hits,  goal: goalHits,  grade: hitsG },
+                group: { val: group, goal: goalGroup, grade: groupG },
+            },
+            control: {
+                split:    { val: avgSplit, goal: goalSplit, grade: splitG },
+                reload:   { val: stype==='posture'?rnd(2,5):0, goal:4, grade: ctlG },
+                headshot: stype!=='posture' ? { val: ctlG==='A'?1:0, grade: ctlG } : null,
+            },
+            exposure: {
+                total: { val: totalTime, goal: goalTotal, grade: totalG },
+                checkGrade: expG,
+            },
+            adapt: { grade: adpG, val: adpG ? rnd(-0.1, 0.35) : null },
+            scenarioType: stype,
+        };
+
+        sessions.unshift({
+            id: Date.now() + i * 137,
+            shooter, range: stype==='posture'?'25':'10',
+            rangeArr: [],
+            preset: stype, scenarioType: stype,
+            timestamp: ts,
+            shotTimes, stats,
+            groupings: [group], hits,
+        });
+    }
+
+    if (sessions.length > 50) sessions.splice(50);
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    renderHistory();
+    setTimeout(drawTrendGraph, 60);
+    alert('30件のサンプルデータを生成しました。');
+}
+
+function exportFullCSV() {
+    const shooter = document.getElementById('cfg-shooter').value;
+    const rangeArr = getRangeArray();
+    const now = new Date().toLocaleString('ja-JP');
+    let headers = ["Timestamp","ShooterID","Total_Shots","Goal_Hits","Actual_Hits","Hits_Grade","Max_Grouping_cm","Grouping_Grade","FirstShot_s","FirstShot_Grade","AvgSplit_s","Split_Grade","Reload_s","Reload_Grade","TotalExposure_s","Exposure_Grade"];
+    rangeArr.forEach((r,i) => headers.push(`Range_T${i+1}_m`,`Grouping_T${i+1}_cm`));
+    for (let i=1;i<=shotTimes.length;i++) headers.push(`Shot${i}_Time`);
+    let row = [
+        now, shooter,
+        document.getElementById('cfg-total-shots').value, document.getElementById('cfg-target-hits').value,
+        finalStats.accuracy.hits.val, finalStats.accuracy.hits.grade,
+        finalStats.accuracy.group.val.toFixed(2), finalStats.accuracy.group.grade,
+        finalStats.speed.first.val.toFixed(2), finalStats.speed.first.grade,
+        finalStats.control.split.val.toFixed(2), finalStats.control.split.grade,
+        finalStats.control.reload.val.toFixed(2), finalStats.control.reload.grade,
+        finalStats.exposure.total.val.toFixed(2), finalStats.exposure.total.grade
+    ];
+    rangeArr.forEach((r,i) => row.push(r,(individualGroupings[i]||0).toFixed(2)));
+    shotTimes.forEach(t => row.push(t.toFixed(2)));
+    const csv = "\uFEFF" + headers.join(",") + "\n" + row.join(",");
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `MaLI_v55_Report_${shooter}.csv`; a.click();
+}
+
+/* ═══════════════════════════════════════════
+   START BUTTON
+═══════════════════════════════════════════ */
+document.getElementById('startBtn').onclick = async () => {
+    const btn = document.getElementById('startBtn');
+    btn.disabled = true;
+    try {
+        await initAudio();
+    } catch(e) {
+        alert('マイクへのアクセスが拒否されました。設定を確認してください。');
+        btn.disabled = false; return;
+    }
+    shotTimes = []; lastShotTime = -999; waveBuffer = []; reviewShotTimes = [];
+    document.getElementById('shot-log').innerHTML = '';
+    document.getElementById('timer-val').innerText = "STANDBY";
+    document.getElementById('timer-val').style.color = '#ffcc00';
+    document.getElementById('waveform-review-area').style.display = 'none';
+    document.getElementById('acquisition-area').style.display = 'none';
+    btn.innerText = "STANDBY...";
+    btn.classList.remove('done');
+
+    const delay = 2000 + Math.random() * 2000;
+    setTimeout(() => {
+        // スタートビープ: iOSは音量1.5倍
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.frequency.value = 880;
+        gain.gain.value = isIOS ? 0.45 : 0.30;  // iOS: 0.3×1.5=0.45
+        osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+
+        startTime = performance.now(); isRunning = true;
+        document.getElementById('timer-val').innerText = "0.00";
+        document.getElementById('timer-val').style.color = '#32d74b';
+        btn.innerText = "RECORDING";
+        btn.disabled = false;
+        document.getElementById('finishBtn').style.display = 'block';
+
+        // 波形バッファへの蓄積開始
+        waveSampleInterval = setInterval(() => {
+            if (!isRunning || !analyser) return;
+            analyser.getByteTimeDomainData(dataArray);
+            const t = (performance.now() - startTime) / 1000;
+            waveBuffer.push({ t, rms: getRMSEnergy() });
+        }, 1000 / WAVE_SPS);
+    }, delay);
+};
+
+// ─── 初期化 ───
+applyPreset('custom');
+
+</script>
+</body>
+</html>            font-family: 'Share Tech Mono', monospace;
+        }
+
+        /* ─── PRESET SELECTOR ─── */
+        .preset-bar { display: flex; gap: 6px; margin-bottom: 14px; }
+        .preset-btn { 
+            flex: 1; padding: 10px 6px; border: 1px solid #333; border-radius: 4px;
+            background: #1a1a1a; color: #aaa; font-size: 0.7rem; font-weight: 700;
+            cursor: pointer; text-align: center; letter-spacing: 1px;
+            font-family: 'Barlow Condensed', sans-serif; transition: all 0.15s;
+            line-height: 1.3;
+        }
+        .preset-btn:hover { border-color: #555; color: #ddd; }
+        .preset-btn.active { border-color: var(--primary); background: #1a1400; color: var(--primary); }
+        .preset-btn .preset-name { font-size: 0.8rem; display: block; }
+        .preset-btn .preset-desc { font-size: 0.6rem; color: inherit; opacity: 0.7; display: block; margin-top: 2px; }
+
+        /* ─── TARGET RANGE ROWS ─── */
+        .target-range-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+        .target-range-row { 
+            display: flex; align-items: center; gap: 8px; 
+            background: #0d0d0d; border: 1px solid #222; border-radius: 4px; padding: 8px 10px;
+        }
+        .target-range-label { 
+            font-size: 0.65rem; color: var(--text-dim); font-weight: 700; 
+            min-width: 52px; letter-spacing: 0.5px; font-family: 'Share Tech Mono', monospace;
+        }
+        .target-range-row input { 
+            flex: 1; background: var(--input-bg); border: none; color: var(--input-text);
+            padding: 7px 10px; border-radius: 4px; font-size: 0.9rem; font-weight: 700;
+            font-family: 'Share Tech Mono', monospace;
+        }
+        .target-range-unit { font-size: 0.65rem; color: #555; min-width: 16px; }
+
+        /* ─── TIMER ─── */
+        #timer-val { 
+            font-size: 5.5rem; font-weight: 800; text-align: center; color: var(--success); 
+            margin: 8px 0; font-family: 'Share Tech Mono', monospace; line-height: 1;
+            text-shadow: 0 0 30px rgba(50,215,75,0.3);
+            transition: color 0.1s;
+        }
+        #timer-val.shot-flash { color: var(--primary); text-shadow: 0 0 40px rgba(255,204,0,0.6); }
+
+        /* ─── SHOT LOG ─── */
+        .shot-log { 
+            display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; 
+            min-height: 32px; padding: 8px; background: #000; border-radius: 4px;
+        }
+        .shot-badge { 
+            font-family: 'Share Tech Mono', monospace; font-size: 0.7rem; 
+            padding: 3px 8px; background: #1a1a1a; border: 1px solid #333; 
+            border-radius: 3px; color: var(--primary);
+        }
+        .shot-badge.reload-badge { border-color: var(--accent); color: var(--accent); }
+
+        /* ─── SENS AREA ─── */
+        .sens-area { background: #000; padding: 12px; border-radius: 4px; border: 1px solid #222; margin-bottom: 12px; }
+        #viz { width: 100%; height: 50px; display: block; }
+
+        /* ─── BUTTONS ─── */
+        .btn-main { 
+            background: var(--primary); color: #000; width: 100%; padding: 22px; 
+            border-radius: 4px; font-weight: 900; font-size: 1.4rem; cursor: pointer; 
+            border: none; letter-spacing: 3px; font-family: 'Barlow Condensed', sans-serif;
+            transition: opacity 0.1s, transform 0.1s;
+        }
+        .btn-main:active { transform: scale(0.98); opacity: 0.85; }
+        .btn-main:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-main.done { background: var(--success); }
+        .upload-btn { 
+            background: var(--accent); color: #fff; padding: 12px; width: 100%; 
+            border: none; font-weight: 700; border-radius: 4px; margin-bottom: 8px; 
+            cursor: pointer; letter-spacing: 1px; font-family: 'Barlow Condensed', sans-serif;
+        }
+        .btn-secondary { 
+            background: #222; color: #ccc; padding: 10px 16px; border: 1px solid #333; 
+            border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 700;
+            font-family: 'Barlow Condensed', sans-serif; letter-spacing: 1px;
+        }
+        .btn-danger { background: #1a0000; color: var(--danger); border-color: #3a0000; }
+
+        /* ─── CANVAS ─── */
+        .canvas-container { width: 100%; background: #000; margin-bottom: 10px; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
+        canvas.shot-canvas { width: 100%; height: auto; display: block; }
+
+        /* ─── EVAL / SCORES ─── */
+        .eval-group { margin-bottom: 14px; border-top: 1px solid #222; padding-top: 10px; }
+        .eval-group-title { font-size: 0.7rem; color: var(--primary); font-weight: 700; margin-bottom: 8px; display: block; letter-spacing: 1px; font-family: 'Share Tech Mono', monospace; }
+        .score-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 0.85rem; border-bottom: 1px solid #1a1a1a; }
+        .grade-badge { 
+            width: 22px; height: 22px; display: inline-flex; justify-content: center; 
+            align-items: center; border-radius: 3px; font-weight: 900; margin-left: 8px; 
+            font-size: 0.7rem; font-family: 'Share Tech Mono', monospace;
+        }
+        .grade-A { background: var(--success); color: #000; }
+        .grade-B { background: var(--primary); color: #000; }
+        .grade-C { background: #ff9500; color: #000; }
+        .grade-D { background: var(--danger); color: #fff; }
+        .val-main { font-family: 'Share Tech Mono', monospace; font-weight: bold; }
+
+        /* ─── SHOT TIMING GRAPH ─── */
+        .timing-graph-wrap { background: #000; border-radius: 4px; padding: 10px; margin: 10px 0; border: 1px solid #222; }
+        #timingCanvas { width: 100%; height: 120px; display: block; }
+
+        /* ─── HISTORY TAB ─── */
+        .history-empty { text-align: center; color: var(--text-dim); padding: 40px 20px; font-size: 0.8rem; letter-spacing: 1px; }
+        .history-card { 
+            background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; 
+            padding: 12px; margin-bottom: 10px; cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .history-card:hover { border-color: #444; }
+        .history-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .history-card-id { font-size: 0.85rem; font-weight: 900; color: var(--primary); font-family: 'Share Tech Mono', monospace; }
+        .history-card-time { font-size: 0.65rem; color: var(--text-dim); }
+        .history-grades { display: flex; gap: 6px; }
+        .history-grade-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .history-grade-label { font-size: 0.55rem; color: var(--text-dim); letter-spacing: 0.5px; }
+        .history-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+        /* ─── COMPARE ─── */
+        .compare-select { 
+            display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;
+        }
+        .compare-item { 
+            padding: 6px 12px; background: #1a1a1a; border: 1px solid #333; 
+            border-radius: 4px; font-size: 0.7rem; cursor: pointer; font-family: 'Share Tech Mono', monospace;
+            transition: all 0.15s;
+        }
+        .compare-item.selected { border-color: var(--primary); color: var(--primary); background: #1a1500; }
+        .compare-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .compare-table th { color: var(--text-dim); font-size: 0.6rem; letter-spacing: 1px; padding: 6px 4px; border-bottom: 1px solid #333; text-align: left; }
+        .compare-table td { padding: 7px 4px; border-bottom: 1px solid #1a1a1a; font-family: 'Share Tech Mono', monospace; }
+        .compare-table td:first-child { color: #888; font-family: 'Barlow Condensed', sans-serif; font-size: 0.75rem; }
+        .compare-best { color: var(--success) !important; }
+
+        /* ─── MIC STATUS ─── */
+        .mic-status { 
+            display: inline-flex; align-items: center; gap: 6px; 
+            font-size: 0.65rem; color: var(--text-dim); margin-bottom: 8px;
+        }
+        .mic-dot { width: 7px; height: 7px; border-radius: 50%; background: #444; }
+        .mic-dot.active { background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    </style>
+</head>
+<body>
+
+<header class="app-header">
+    <h1 class="app-title-main">MaLI ver65</h1>
+    <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
+</header>
+
+<div class="tab-bar">
+    <button class="tab-btn active"  onclick="switchTab('session')">SESSION</button>
+    <button class="tab-btn" onclick="switchTab('history')">HISTORY</button>
+    <button class="tab-btn" onclick="switchTab('assessment')">ASSESSMENT</button>
+    <button class="tab-btn" onclick="switchTab('compare')">COMPARE</button>
+</div>
+
+<!-- ===== SESSION TAB ===== -->
+<div id="tab-session" class="tab-pane active">
+
+<div class="card">
+    <h2>1. Scenario Config</h2>
+
+    <!-- プリセット選択 -->
+    <div class="preset-bar" id="scenario-preset-bar" style="flex-wrap:wrap;">
+        <button class="preset-btn" id="preset-btn-posture" onclick="applyPreset('posture')" style="flex:1; min-width:80px;">
+            <span class="preset-name" style="font-size:0.72rem;">至近（姿勢変換）</span>
+            <span class="preset-desc">10発 / 3目標 / 25m</span>
+        </button>
+        <button class="preset-btn" id="preset-btn-suppress_day" onclick="applyPreset('suppress_day')" style="flex:1; min-width:80px;">
+            <span class="preset-name" style="font-size:0.72rem;">制圧致命（昼間）</span>
+            <span class="preset-desc">5発 / 1目標 / 10m</span>
+        </button>
+        <button class="preset-btn" id="preset-btn-suppress_night" onclick="applyPreset('suppress_night')" style="flex:1; min-width:80px;">
+            <span class="preset-name" style="font-size:0.72rem;">制圧致命（夜間）</span>
+            <span class="preset-desc">5発 / 1目標 / 10m</span>
+        </button>
+        <button class="preset-btn" id="preset-btn-custom" onclick="applyPreset('custom')" style="flex:1; min-width:60px;">
+            <span class="preset-name">カスタム</span>
+            <span class="preset-desc">手動設定</span>
+        </button>
+    </div>
+
+    <div class="config-grid">
+        <div style="grid-column: span 2;"><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
+        <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5" oninput="onShotCountChange()"></div>
+        <div><label>目標命中数 (Goal)</label><input type="number" id="cfg-target-hits" value="5"></div>
+        <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="100"></div>
+        <div><label>目標散布界 (cm)</label><input type="number" id="cfg-target-grouping" value="15.0"></div>
+        <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
+        <div><label>目標間隔 (s)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
+        <div><label>目標リロード (s)</label><input type="number" id="cfg-target-reload" value="3.5" step="0.1"></div>
+        <div><label>リロード弾数</label><input type="number" id="cfg-reload-at" value="0" oninput="onShotCountChange()"></div>
+    </div>
+
+    <!-- 各ターゲットの射距離設定 -->
+    <div style="margin-top: 14px;">
+        <label style="margin-bottom: 6px;">各ターゲット射距離 (m)</label>
+        <div class="target-range-list" id="target-range-list"></div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>2. Timer</h2>
+    <div class="sens-area">
+        <div class="mic-status"><span class="mic-dot" id="mic-dot"></span><span id="mic-status-text">MIC: INACTIVE</span></div>
+        <label>検出閾値: <span id="sens-val">0.30</span></label>
+        <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.30" 
+               oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
+        <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
+            <label style="margin:0; white-space:nowrap; font-size:0.7rem;">不感時間:</label>
+            <span style="font-size:0.8rem; color:#ffcc00; font-family:monospace; font-weight:bold;">0.10s</span>
+            <span style="font-size:0.62rem; color:#555;">反響音二重検知防止</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
+            <label style="margin:0; white-space:nowrap; font-size:0.7rem;">リロード不感時間: <span id="reload-dead-val">2.0</span>s</label>
+            <input type="range" id="reload-dead-time" min="0.5" max="5.0" step="0.5" value="2.0" style="flex:1;"
+                   oninput="document.getElementById('reload-dead-val').innerText=parseFloat(this.value).toFixed(1)">
+            <span style="font-size:0.62rem; color:#555; flex-basis:100%;">
+                リロード直後の誤検知防止。リロード動作中に反応する場合は値を大きくしてください（推奨 2.0〜4.0s）
+            </span>
+        </div>
+        <canvas id="viz"></canvas>
+    </div>
+    <div id="timer-val">0.00</div>
+    <div class="shot-log" id="shot-log"></div>
+    <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        <label style="font-size:0.68rem; color:#666; display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="chk-auto-finish"
+                style="width:14px; height:14px; accent-color:var(--primary); cursor:pointer;">
+            発数到達で自動終了
+        </label>
+        <span style="font-size:0.62rem; color:#444;">OFFにすると波形を取り続けます</span>
+    </div>
+    <div style="margin-top: 10px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="startBtn" class="btn-main" style="flex:1;">START</button>
+        <button id="finishBtn" onclick="forceFinishEngagement()" style="display:none; flex:1;"
+            class="btn-secondary">終了</button>
+    </div>
+</div>
+
+<!-- ===== 波形レビューパネル ===== -->
+<div id="waveform-review-area" style="display:none;" class="card">
+    <h2>波形レビュー（手動補正）</h2>
+    <div style="font-size:0.68rem; color:#555; margin-bottom:10px; line-height:1.7;">
+        射撃中の音響波形を確認し、ピークをタップして発射時刻を手動で追加・修正できます。<br>
+        自動検出結果に問題がなければ「自動検出結果で確定」を押してください。
+    </div>
+
+    <!-- 波形キャンバス -->
+    <div style="position:relative; background:#050505; border-radius:4px; overflow-x:scroll; overflow-y:hidden; margin-bottom:10px;" id="wave-scroll-wrap">
+        <canvas id="waveReviewCanvas" style="display:block; height:120px;"></canvas>
+    </div>
+    <div style="font-size:0.62rem; color:#444; margin-bottom:10px; font-family:monospace;">
+        タップ: 発射マーク追加 　マーク上タップ: 削除 　横スクロール: 波形移動
+    </div>
+
+    <!-- 現在のショットタイムリスト -->
+    <div style="margin-bottom:12px;">
+        <div style="font-size:0.7rem; color:#888; margin-bottom:6px;">発射タイム一覧（タップで削除）</div>
+        <div id="review-shot-list" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+    </div>
+
+    <!-- 確定ボタン -->
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button onclick="confirmReviewedShots()" class="btn-main" style="flex:1; font-size:0.85rem;">
+            この内容で確定・解析へ進む
+        </button>
+        <button onclick="skipReviewAndConfirm()" class="btn-secondary" style="flex:1; font-size:0.75rem; color:#888;">
+            自動検出結果で確定
+        </button>
+    </div>
+</div>
+
+<div id="acquisition-area" style="display:none;" class="card">
+    <h2>3. Target Analysis</h2>
+
+    <!-- モード切り替え -->
+    <div class="preset-bar" style="margin-bottom:12px;">
+        <button class="preset-btn" id="mode-btn-seal" onclick="setAnalysisMode('seal')">
+            <span class="preset-name">シールあり</span>
+            <span class="preset-desc">青色自動検出</span>
+        </button>
+        <button class="preset-btn active" id="mode-btn-manual" onclick="setAnalysisMode('manual')">
+            <span class="preset-name">手動マーク</span>
+            <span class="preset-desc">タップで弾痕指定</span>
+        </button>
+        </div>
+
+    <!-- 手動モード設定 -->
+    <div id="mode-panel-manual" style="display:block;">
+        <div style="background:#0a0a14; border:1px solid #1a1a3a; border-radius:4px; padding:10px; margin-bottom:10px; font-size:0.7rem; color:#6a6aaa; line-height:1.7;">
+            <strong style="color:#60a0ff;">タップ/クリックで弾痕を手動マーク</strong><br>
+            画像を拡大してピンポイントでタップ。青シール検出で下書きして修正もできます。<br>
+            <span style="color:#888;">ピンチ/ホイールで拡大縮小　ドラッグで移動　マークをタップで削除</span>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+            <div style="font-size:0.7rem; color:#aaa; align-self:center;">
+                マーク数: <strong id="manual-count" style="color:#60a0ff;">0</strong> / 
+                <strong id="manual-max" style="color:#888;">5</strong>発
+            </div>
+            <button id="btn-blue-suggest" onclick="runBlueSuggest()" 
+                style="background:#0a1a3a; border:1px solid #2244aa; color:#60a0ff; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer; flex:1;">
+                青シール自動検出（下書き）
+            </button>
+            <button onclick="clearAllManualMarks()"
+                style="background:#1a0a0a; border:1px solid #441111; color:#ff6060; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
+                全消去
+            </button>
+        </div>
+        <button id="btn-confirm-manual" onclick="confirmManualMarks()"
+            style="width:100%; background:#003366; border:1px solid #0055aa; color:#60d0ff; padding:10px; border-radius:4px; font-size:0.85rem; font-weight:bold; cursor:pointer; margin-bottom:4px;">
+            マーク確定・スコア計算
+        </button>
+    </div>
+
+    <!-- シールモード設定 -->
+    <div id="mode-panel-seal" style="display:none;">
+        <div style="background:#0d0d0d; border:1px solid #222; border-radius:4px; padding:10px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="margin:0;">青色検出感度</label>
+                <span style="font-family:monospace; font-size:0.8rem; color:var(--primary);" id="sensitivity-label">3 - 標準</span>
+            </div>
+            <input type="range" id="detect-sensitivity" min="1" max="5" step="1" value="3" style="width:100%;"
+                   oninput="updateSensitivityLabel(this.value)">
+            <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#444; margin-top:3px;">
+                <span>1 厳格</span><span>2</span><span>3 標準</span><span>4</span><span>5 緩い</span>
+            </div>
+            <div style="font-size:0.6rem; color:#555; margin-top:6px; line-height:1.5;">
+                ※ 感度4以上で検出ピクセル（黄色点）も表示。ConsoleにDEBUGログ出力。
+            </div>
+        </div>
+    </div>
+    <button class="upload-btn" id="upload-btn" onclick="document.getElementById('file-input').click()">写真をアップロード（手動マーク）</button>
+    <button class="upload-btn" id="upload-add-btn" onclick="document.getElementById('file-input-add').click()"
+        style="display:none; background:#111; border-color:#555; color:#888; margin-top:4px; font-size:0.8rem;">＋ 写真を追加アップロード</button>
+    <input type="file" id="file-input"     accept="image/jpeg,image/png,image/heic,image/heif,image/*" multiple style="display:none" onchange="processMultipleImages(this, false)">
+    <input type="file" id="file-input-add" accept="image/jpeg,image/png,image/heic,image/heif,image/*" multiple style="display:none" onchange="processMultipleImages(this, true)">
+    <div id="canvas-list"></div>
+</div>
+
+<div id="assessment-area" style="display:none;"></div>
+
+</div><!-- /tab-session -->
+
+<!-- ===== HISTORY TAB ===== -->
+<div id="tab-history" class="tab-pane">
+    <div class="card">
+        <h2>1. Performance Trend</h2>
+
+        <!-- 射距離構成フィルタ -->
+        <div style="margin-bottom:10px;">
+            <div style="font-size:0.65rem; color:#555; margin-bottom:5px;">射距離構成（同一構成のみ比較）</div>
+            <div id="trend-range-filter" style="display:flex; gap:5px; flex-wrap:wrap;"></div>
+        </div>
+
+        <!-- 指標タブ -->
+        <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px;">
+            <button class="preset-btn active" id="trend-btn-first" onclick="setTrendMetric('first')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">初弾速度</span>
+            </button>
+            <button class="preset-btn" id="trend-btn-split" onclick="setTrendMetric('split')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">連射間隔</span>
+            </button>
+            <button class="preset-btn" id="trend-btn-group" onclick="setTrendMetric('group')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">散布界</span>
+            </button>
+            <button class="preset-btn" id="trend-btn-hits" onclick="setTrendMetric('hits')" style="flex:1; min-width:55px; padding:5px 4px;">
+                <span class="preset-name" style="font-size:0.68rem;">命中率</span>
+            </button>
+        </div>
+
+        <!-- グラフ本体 -->
+        <div style="position:relative; background:#050505; border-radius:4px; overflow:hidden;">
+            <!-- グレード凡例 -->
+            <div style="display:flex; gap:8px; padding:5px 10px; border-bottom:1px solid #111; flex-wrap:wrap;">
+                <span style="font-size:0.6rem; color:#32d74b;">■ A Elite</span>
+                <span style="font-size:0.6rem; color:#ffcc00;">■ B Standard</span>
+                <span style="font-size:0.6rem; color:#ff9500;">■ C Developing</span>
+                <span style="font-size:0.6rem; color:#ff3b30;">■ D Improvement</span>
+                <span style="font-size:0.6rem; color:#555; margin-left:auto;">点: 目標達成=緑 / 未達=赤</span>
+            </div>
+            <canvas id="trendCanvas" style="width:100%; height:180px; display:block;"></canvas>
+        </div>
+        <div id="trend-empty" style="display:none; text-align:center; color:#444; font-size:0.75rem; font-family:monospace; padding:30px 0;">
+            セッションを保存するとグラフが表示されます
+        </div>
+    </div>
+    <div class="card">
+        <h2>2. Session History</h2>
+        <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
+            <button onclick="selectAllHistorySessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">
+                全選択
+            </button>
+            <button onclick="deselectAllHistorySessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">
+                全解除
+            </button>
+            <button onclick="exportSelectedCSV()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#32d74b; color:#32d74b;">
+                CSV出力
+            </button>
+            <button onclick="deleteSelectedSessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#ff3b30; color:#ff3b30;">
+                削除
+            </button>
+            <button onclick="document.getElementById('csv-import-input').click()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#0099ff; color:#0099ff;">
+                CSVからインポート
+            </button>
+            <input type="file" id="csv-import-input" accept=".csv" style="display:none;" onchange="importSessionsFromCSV(this)">
+            <button onclick="generateSampleData()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#555; color:#555;">
+                サンプルデータ生成
+            </button>
+            <span id="history-select-count" style="font-size:0.65rem; color:#444; font-family:monospace;"></span>
+        </div>
+        <div id="history-list"></div>
+    </div>
+</div>
+
+<!-- ===== ASSESSMENT TAB ===== -->
+<div id="tab-assessment" class="tab-pane">
+    <div class="card">
+        <h2>TOTAL ASSESSMENT</h2>
+        <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.7;">
+            各射手の3シナリオ（至近射撃・制圧致命昼間・制圧致命夜間）の結果を集計し、評価する指標のみを均等荷重で総合グレードを算出します。<br>
+            セッションを保存後、ここに自動反映されます。
+        </div>
+        <!-- 射手セレクタ -->
+        <div style="margin-bottom:14px;">
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:5px;">射手を選択</label>
+            <div id="assess-shooter-btns" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+        </div>
+        <div id="assess-body">
+            <div style="color:#333; font-size:0.75rem; font-family:monospace; padding:20px 0; text-align:center;">
+                3シナリオのセッションを保存してください
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== COMPARE TAB ===== -->
+<div id="tab-compare" class="tab-pane">
+
+    <!-- セッション比較 -->
+    <div class="card">
+        <h2>1. Compare Sessions</h2>
+        <div id="compare-select-area" class="compare-select"></div>
+        <div id="compare-table-area"></div>
+    </div>
+
+    <!-- 仮想敵シミュレーション -->
+    <div class="card">
+        <h2>2. Combat Simulation</h2>
+        <div style="font-size:0.68rem; color:#555; margin-bottom:12px; line-height:1.6;">
+            モンテカルロ法（1,000試行）。セッションの種類に応じて比較する指標を自動選択します。<br>
+            勝敗判定: <strong style="color:#aaa;">速度・精度・制御・暴露・適応</strong> の利用可能指標を均等荷重でスコア化
+        </div>
+
+        <!-- セッション/Assessment選択 -->
+        <div style="margin-bottom:12px;">
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:5px;">自分のデータを選択</label>
+            <select id="sim-session-select" onchange="onSimSessionChange()"
+                style="width:100%; background:#1a1a1a; border:1px solid #333; color:#eee; padding:8px; border-radius:4px; font-family:monospace; font-size:0.75rem;">
+                <option value="">-- セッション / 総合評価を選択 --</option>
+            </select>
+            <div id="sim-selected-metrics" style="font-size:0.65rem; color:#444; font-family:monospace; margin-top:4px;"></div>
+        </div>
+
+        <!-- 仮想敵プリセット -->
+        <div style="margin-bottom:10px;">
+            <label style="font-size:0.7rem; color:#888; display:block; margin-bottom:6px;">仮想敵を選択</label>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="preset-btn active" id="enemy-btn-guerrilla" onclick="setEnemy('guerrilla')" style="flex:1; min-width:70px;">
+                    <span class="preset-name" style="font-size:0.68rem;">軽武装ゲリラ</span>
+                    <span class="preset-desc">基礎訓練あり</span>
+                </button>
+                <button class="preset-btn" id="enemy-btn-regular" onclick="setEnemy('regular')" style="flex:1; min-width:70px;">
+                    <span class="preset-name" style="font-size:0.68rem;">正規部隊</span>
+                    <span class="preset-desc">標準的訓練</span>
+                </button>
+                <button class="preset-btn" id="enemy-btn-elite" onclick="setEnemy('elite')" style="flex:1; min-width:70px;">
+                    <span class="preset-name" style="font-size:0.68rem;">エリート部隊</span>
+                    <span class="preset-desc">特殊部隊レベル</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 仮想敵5指標パラメータ表示 -->
+        <div id="enemy-stats-display" style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:4px; padding:8px 12px; margin-bottom:14px; font-family:monospace; font-size:0.65rem; color:#555; line-height:2.2;">
+        </div>
+
+        <!-- 実行ボタン -->
+        <button onclick="runCombatSim()"
+            style="width:100%; background:#1a0a00; border:1px solid #ff6600; color:#ff9933; padding:12px; border-radius:4px; font-size:0.9rem; font-weight:bold; cursor:pointer; letter-spacing:1px;">
+            SIMULATE  1,000 ENGAGEMENTS
+        </button>
+
+        <!-- 結果表示 -->
+        <div id="sim-result" style="display:none; margin-top:16px;">
+            <div style="text-align:center; padding:16px 0 8px;">
+                <div style="font-size:0.65rem; color:#555; letter-spacing:2px; margin-bottom:6px;">WIN PROBABILITY</div>
+                <div id="sim-win-pct" style="font-size:3rem; font-family:'Share Tech Mono',monospace; font-weight:bold; line-height:1;"></div>
+                <div id="sim-verdict" style="font-size:0.75rem; margin-top:6px; font-family:monospace;"></div>
+            </div>
+            <div style="position:relative; height:22px; background:#1a1a1a; border-radius:11px; overflow:hidden; margin:8px 0 16px;">
+                <div id="sim-gauge-you"  style="position:absolute; left:0; top:0; height:100%; background:linear-gradient(90deg,#005588,#0099ff); transition:width 0.6s ease;"></div>
+                <div id="sim-gauge-enemy" style="position:absolute; right:0; top:0; height:100%; background:linear-gradient(270deg,#550000,#ff3300); transition:width 0.6s ease;"></div>
+                <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.65rem; font-family:monospace; color:rgba(255,255,255,0.5);">YOU vs ENEMY</div>
+            </div>
+            <div id="sim-metrics-table" style="font-size:0.7rem;"></div>
+            <div style="font-size:0.6rem; color:#333; text-align:right; margin-top:8px; font-family:monospace;" id="sim-footer"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════ */
+let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
+let cumulativeHits = 0, individualGroupings = [], finalStats = {};
+let animFrameId = null;
+let lastShotTime = -999;
+let currentDeadTime = 0.10; // 実銃固定（0.10s）
+
+// 波形録音バッファ（1000sps相当でRMSを蓄積）
+const WAVE_SPS = 200;          // 波形サンプリングレート（samples/s）
+let waveBuffer = [];           // [{t, rms}] — 射撃中に蓄積
+let waveSampleInterval = null;
+let reviewShotTimes = [];      // 手動レビュー用の発射時刻配列（autoまたは手動）
+
+// 高精度検出用バッファ
+const DETECT_BUFFER = 4;
+let energyHistory = new Float32Array(DETECT_BUFFER);
+let energyIdx = 0;
+
+const vizCanvas = document.getElementById('viz');
+const vizCtx = vizCanvas.getContext('2d');
+vizCanvas.width = vizCanvas.offsetWidth || 300;
+vizCanvas.height = 50;
+
+/* ═══════════════════════════════════════════
+   TABS
+═══════════════════════════════════════════ */
+function switchTab(name) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    event.target.classList.add('active');
+    if (name === 'history')    { renderHistory(); setTimeout(drawTrendGraph, 60); }
+    if (name === 'assessment') { renderAssessment(); }
+    if (name === 'compare')    { renderCompareSelect(); initCompareTab(); }
+}
+
+function updateSensitivityLabel(v) {
+    const labels = ['', '1 - 厳格', '2 - やや厳格', '3 - 標準', '4 - やや緩い', '5 - 緩い'];
+    document.getElementById('sensitivity-label').textContent = labels[v];
+}
+
+/* ═══════════════════════════════════════════
+   PRESETS & TARGET RANGE CONFIG
+═══════════════════════════════════════════ */
+const PRESETS = {
+    // ── 至近射撃（姿勢変換）──
+    // 目標1:4発, 目標2:3発, 目標3:3発 / 全て25m / 7発目でリロード
+    // 速度:射撃間隔+合計時間 / 精度:命中数+散布界 / 制御:弾倉交換時間 / 暴露:チェックリスト
+    posture: {
+        label: '至近射撃（姿勢変換）',
+        scenarioType: 'posture',
+        totalShots: 10, targetHits: 8, targetHeight: 100,
+        targetGrouping: 20, targetFirst: 1.0, targetSplit: 2.0,
+        targetReload: 4.0, reloadAt: 7,
+        defaultRanges: [25,25,25,25,25,25,25,25,25,25],
+        // シナリオ固有設定
+        targetGroups: [
+            { label: '目標1', shots: 4, goalHits: 2, goalGroup: 20 },
+            { label: '目標2', shots: 3, goalHits: 2, goalGroup: 20 },
+            { label: '目標3', shots: 3, goalHits: 2, goalGroup: 20 },
+        ],
+        evalAxes: { speed: true, accuracy: true, control: 'reload', exposure: 'checklist', adapt: false },
+        goalTotalTime: 30.0,
+        goalSplit: 2.0,
+        goalExposureCount: 1,  // 暴露許容回数
+    },
+    // ── 制圧致命射撃（昼間）──
+    // 目標1:5発 / 10m / リロードなし
+    // 速度:射撃間隔+合計時間 / 精度:命中数+散布界 / 制御:5発目頭部命中チェック / 暴露:なし / 適応:なし
+    suppress_day: {
+        label: '制圧致命射撃（昼間）',
+        scenarioType: 'suppress_day',
+        totalShots: 5, targetHits: 3, targetHeight: 100,
+        targetGrouping: 10, targetFirst: 1.0, targetSplit: 0.8,
+        targetReload: 0, reloadAt: 0,
+        defaultRanges: [10,10,10,10,10],
+        targetGroups: [
+            { label: '目標1', shots: 5, goalHits: 3, goalGroup: 10 },
+        ],
+        evalAxes: { speed: true, accuracy: true, control: 'headshot', exposure: false, adapt: false },
+        goalTotalTime: 5.0,
+        goalSplit: 0.8,
+    },
+    // ── 制圧致命射撃（夜間）──
+    // 目標1:5発 / 10m / リロードなし
+    // 速度:射撃間隔+合計時間 / 精度:命中数+散布界 / 制御:5発目頭部命中チェック / 暴露:なし / 適応:昼間比
+    suppress_night: {
+        label: '制圧致命射撃（夜間）',
+        scenarioType: 'suppress_night',
+        totalShots: 5, targetHits: 3, targetHeight: 100,
+        targetGrouping: 15, targetFirst: 1.5, targetSplit: 1.5,
+        targetReload: 0, reloadAt: 0,
+        defaultRanges: [10,10,10,10,10],
+        targetGroups: [
+            { label: '目標1', shots: 5, goalHits: 3, goalGroup: 15 },
+        ],
+        evalAxes: { speed: true, accuracy: true, control: 'headshot', exposure: false, adapt: 'vs_day' },
+        goalTotalTime: 8.0,
+        goalSplit: 1.5,
+        adaptDegradationLimit: 0.20,  // 昼間からの悪化許容率20%
+    },
+    custom: null
+};
+
+let currentPreset = 'custom';
+
+function applyPreset(key) {
+    currentPreset = key;
+    document.querySelectorAll('#scenario-preset-bar .preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('preset-btn-' + key).classList.add('active');
+
+    if (key === 'custom') { buildTargetRangeList(); return; }
+
+    const p = PRESETS[key];
+    document.getElementById('cfg-total-shots').value    = p.totalShots;
+    document.getElementById('cfg-target-hits').value    = p.targetHits;
+    document.getElementById('cfg-target-height').value  = p.targetHeight;
+    document.getElementById('cfg-target-grouping').value = p.targetGrouping;
+    document.getElementById('cfg-target-first').value   = p.targetFirst;
+    document.getElementById('cfg-target-split').value   = p.targetSplit;
+    document.getElementById('cfg-target-reload').value  = p.targetReload || 0;
+    document.getElementById('cfg-reload-at').value      = p.reloadAt || 0;
+    buildTargetRangeList(p.defaultRanges);
+}
+
+function onShotCountChange() {
+    buildTargetRangeList();
+}
+
+// リロード位置でターゲットをグループ分けして射距離リストを生成
+function buildTargetRangeList(defaults) {
+    const total    = parseInt(document.getElementById('cfg-total-shots').value) || 1;
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value) || 0;
+    const list     = document.getElementById('target-range-list');
+
+    // 既存の値を保持
+    const existing = Array.from(list.querySelectorAll('input')).map(i => i.value);
+
+    list.innerHTML = '';
+
+    // ターゲット（マガジン）のグループを作成
+    // reloadAt=0: 全部1グループ、reloadAt>0: 第1マガジン(reloadAt発)+第2マガジン(残り)
+    const groups = [];
+    if (reloadAt > 0 && reloadAt < total) {
+        groups.push({ label: 'MAG-1', shots: reloadAt });
+        groups.push({ label: 'MAG-2', shots: total - reloadAt });
+    } else {
+        groups.push({ label: 'TARGET', shots: total });
+    }
+
+    let shotIdx = 0;
+    groups.forEach((grp, gi) => {
+        // グループヘッダー
+        if (groups.length > 1) {
+            const hdr = document.createElement('div');
+            hdr.style.cssText = 'font-size:0.6rem;color:#555;letter-spacing:1px;padding:2px 0 0 2px;font-family:monospace;';
+            hdr.textContent = `── ${grp.label} (${grp.shots}発) ──`;
+            list.appendChild(hdr);
+        }
+
+        for (let i = 0; i < grp.shots; i++) {
+            const row = document.createElement('div');
+            row.className = 'target-range-row';
+            const globalIdx = shotIdx;
+            const defVal = defaults ? (defaults[globalIdx] ?? 10) : (existing[globalIdx] ?? 10);
+            row.innerHTML = `
+                <span class="target-range-label">Shot #${globalIdx + 1}</span>
+                <input type="number" min="1" max="9999" value="${defVal}" 
+                       oninput="onRangeChange()" placeholder="距離">
+                <span class="target-range-unit">m</span>`;
+            list.appendChild(row);
+            shotIdx++;
+        }
+    });
+}
+
+function onRangeChange() {
+    // 手動変更でカスタムに切り替え（プリセット表示は維持）
+}
+
+// 全ショットの射距離配列を取得
+function getRangeArray() {
+    return Array.from(document.querySelectorAll('#target-range-list input'))
+        .map(i => parseFloat(i.value) || 10);
+}
+
+// 旧 autoConfigTargets 互換（CSV出力用に射距離文字列を生成）
+function getRangeString() {
+    const arr = getRangeArray();
+    const unique = [...new Set(arr)];
+    return unique.join(' / ');
+}
+
+/* ═══════════════════════════════════════════
+   AUDIO / DETECTION
+═══════════════════════════════════════════ */
+async function initAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512; // 高精度
+    analyser.smoothingTimeConstant = 0.1; // レスポンス重視
+    source.connect(analyser);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    energyHistory.fill(0);
+    document.getElementById('mic-dot').classList.add('active');
+    document.getElementById('mic-status-text').textContent = 'MIC: ACTIVE';
+    if (!animFrameId) renderViz();
+}
+
+function getRMSEnergy() {
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sum += v * v;
+    }
+    return Math.sqrt(sum / dataArray.length);
+}
+
+function renderViz() {
+    animFrameId = requestAnimationFrame(renderViz);
+    if (!analyser) return;
+    analyser.getByteTimeDomainData(dataArray);
+    vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
+    vizCtx.lineWidth = 1.5; vizCtx.strokeStyle = "#ffcc00"; vizCtx.beginPath();
+    const slice = vizCanvas.width / dataArray.length;
+    let x = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = v * vizCanvas.height / 2;
+        i === 0 ? vizCtx.moveTo(x, y) : vizCtx.lineTo(x, y);
+        x += slice;
+    }
+    vizCtx.stroke();
+
+    // 閾値ライン
+    const th = parseFloat(document.getElementById('mic-sens').value);
+    vizCtx.strokeStyle = 'rgba(255,59,48,0.4)';
+    vizCtx.lineWidth = 1;
+    vizCtx.setLineDash([4, 4]);
+    vizCtx.beginPath();
+    const thY = vizCanvas.height / 2 - th * vizCanvas.height / 2;
+    vizCtx.moveTo(0, thY); vizCtx.lineTo(vizCanvas.width, thY);
+    const thY2 = vizCanvas.height / 2 + th * vizCanvas.height / 2;
+    vizCtx.moveTo(0, thY2); vizCtx.lineTo(vizCanvas.width, thY2);
+    vizCtx.stroke();
+    vizCtx.setLineDash([]);
+
+    if (isRunning) checkShot();
+}
+
+function checkShot() {
+    const now = (performance.now() - startTime) / 1000;
+    if (now < 0.10) return;
+    
+    const rms = getRMSEnergy();
+    energyHistory[energyIdx % DETECT_BUFFER] = rms;
+    energyIdx++;
+
+    // 動的閾値: 直前の平均に対する急上昇を検出
+    const th = parseFloat(document.getElementById('mic-sens').value);
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
+    const reloadDeadTime = parseFloat(document.getElementById('reload-dead-time').value);
+    const deadTime = (reloadAt > 0 && shotTimes.length === reloadAt) ? reloadDeadTime : currentDeadTime;
+
+    if (rms > th && (now - lastShotTime) > deadTime) {
+        lastShotTime = now;
+        shotTimes.push(now);
+        updateShotLog(now, reloadAt);
+        const tv = document.getElementById('timer-val');
+        tv.innerText = now.toFixed(2);
+        tv.classList.add('shot-flash');
+        setTimeout(() => tv.classList.remove('shot-flash'), 120);
+        const autoFinish = document.getElementById('chk-auto-finish')?.checked !== false;
+        if (autoFinish && shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
+    }
+}
+
+function updateShotLog(t, reloadAt) {
+    const log = document.getElementById('shot-log');
+    const badge = document.createElement('span');
+    const isReload = reloadAt > 0 && shotTimes.length === reloadAt + 1;
+    badge.className = 'shot-badge' + (isReload ? ' reload-badge' : '');
+    const idx = shotTimes.length;
+    const prev = shotTimes.length > 1 ? shotTimes[shotTimes.length - 2] : null;
+    const split = prev !== null ? (t - prev).toFixed(2) : null;
+    badge.textContent = `#${idx} ${t.toFixed(2)}s` + (split ? ` (+${split})` : '');
+    log.appendChild(badge);
+}
+
+function finishEngagement() {
+    isRunning = false;
+    if (waveSampleInterval) { clearInterval(waveSampleInterval); waveSampleInterval = null; }
+    const btn = document.getElementById('startBtn');
+    btn.innerText = "DONE";
+    btn.classList.add('done');
+    document.getElementById('finishBtn').style.display = 'none';
+    // 波形レビューパネルを表示
+    reviewShotTimes = [...shotTimes];
+    openWaveformReview();
+}
+
+// 強制終了（発数未到達でも終了）
+function forceFinishEngagement() {
+    if (!isRunning) return;
+    finishEngagement();
+}
+
+/* ═══════════════════════════════════════════
+   IMAGE ANALYSIS - Dual Mode
+═══════════════════════════════════════════ */
+let analysisMode = 'manual'; // 'seal' | 'manual'
+
+/* ===========================================
+   手動マーキング システム
+=========================================== */
+let manualSessions = [];
+
+function initManualTarget(wrapper, file, targetIdx, rangeM) {
+    const objUrl = URL.createObjectURL(file);
+    const session = { wrapper, imgSrc: objUrl, imgW:0, imgH:0, rangeM, marks:[], zoom:1, panX:0, panY:0, targetIdx };
+    manualSessions.push(session);
+
+    const header = document.createElement('div');
+    header.style.cssText = 'background:#111; padding:8px 12px; font-family:monospace; font-size:0.75rem; color:#60a0ff; display:flex; justify-content:space-between; align-items:center;';
+    header.innerHTML = '<span>T' + (targetIdx+1) + ' — ' + rangeM + 'm</span><span id="mark-count-' + targetIdx + '">0発マーク済み</span>';
+    wrapper.appendChild(header);
+
+    const cvs = document.createElement('canvas');
+    cvs.style.cssText = 'width:100%; display:block; cursor:crosshair; touch-action:none; background:#000;';
+    cvs.dataset.sessionIdx = manualSessions.length - 1;
+    wrapper.appendChild(cvs);
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'background:#0a0a0a; padding:5px 10px; font-size:0.65rem; color:#555; text-align:center;';
+    hint.textContent = 'タップ: マーク追加  タップ(長押し): 削除  ピンチ/ホイール: 拡大  ドラッグ: 移動';
+    wrapper.appendChild(hint);
+
+    const img = new Image();
+    img.onload = () => {
+        const MAX_W = 900;
+        let dW = img.width, dH = img.height;
+        if (dW > MAX_W) { dH = Math.round(dH * MAX_W / dW); dW = MAX_W; }
+        session.drawW = dW; session.drawH = dH; session.img = img;
+        cvs.width = dW; cvs.height = dH;
+        renderManualCanvas(session, cvs);
+        attachManualEvents(cvs, session);
+    };
+    img.src = objUrl;
+}
+
+function renderManualCanvas(session, cvs) {
+    const ctx = cvs.getContext('2d');
+    const { drawW, drawH, zoom, panX, panY, marks, img } = session;
+    ctx.clearRect(0, 0, drawW, drawH);
+    ctx.save();
+    ctx.translate(panX, panY);
+    ctx.scale(zoom, zoom);
+    ctx.drawImage(img, 0, 0, drawW, drawH);
+    ctx.restore();
+
+    marks.forEach((m, idx) => {
+        const sx = m.x * zoom + panX;
+        const sy = m.y * zoom + panY;
+        const r = Math.max(14, 18);
+        ctx.beginPath(); ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5;
+        ctx.arc(sx, sy, r, 0, Math.PI*2); ctx.stroke();
+        ctx.beginPath(); ctx.fillStyle = '#ff3333';
+        ctx.arc(sx, sy, 4, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 13px monospace';
+        ctx.fillText('' + (idx+1), sx + r + 3, sy + 4);
+    });
+
+    const countEl = document.getElementById('mark-count-' + session.targetIdx);
+    if (countEl) countEl.textContent = marks.length + '発マーク済み';
+    updateGlobalManualCount();
+}
+
+function attachManualEvents(cvs, session) {
+    let isDragging = false, dragStart = null, panStart = null, lastTouchDist = null;
+    const MARK_R = 22;
+
+    const toImgCoord = (clientX, clientY) => {
+        const rect = cvs.getBoundingClientRect();
+        const sx = (clientX - rect.left) * (cvs.width / rect.width);
+        const sy = (clientY - rect.top) * (cvs.height / rect.height);
+        return { x: (sx - session.panX) / session.zoom, y: (sy - session.panY) / session.zoom };
+    };
+
+    const toScreen = (ix, iy) => ({ x: ix*session.zoom+session.panX, y: iy*session.zoom+session.panY });
+
+    const findNear = (sx, sy) => session.marks.findIndex(m => {
+        const sc = toScreen(m.x, m.y);
+        return Math.hypot(sx-sc.x, sy-sc.y) < MARK_R;
+    });
+
+    const getCanvasXY = (clientX, clientY) => {
+        const rect = cvs.getBoundingClientRect();
+        return { sx: (clientX-rect.left)*(cvs.width/rect.width), sy: (clientY-rect.top)*(cvs.height/rect.height) };
+    };
+
+    const handleTap = (clientX, clientY) => {
+        const { sx, sy } = getCanvasXY(clientX, clientY);
+        const nearIdx = findNear(sx, sy);
+        if (nearIdx >= 0) {
+            session.marks.splice(nearIdx, 1);
+        } else {
+            const ic = toImgCoord(clientX, clientY);
+            if (ic.x >= 0 && ic.y >= 0 && ic.x <= session.drawW && ic.y <= session.drawH) {
+                session.marks.push({ x: ic.x, y: ic.y });
+            }
+        }
+        renderManualCanvas(session, cvs);
+    };
+
+    // Mouse
+    cvs.addEventListener('mousedown', e => {
+        const { sx, sy } = getCanvasXY(e.clientX, e.clientY);
+        dragStart = { sx, sy, moved: false };
+        panStart = { panX: session.panX, panY: session.panY };
+        isDragging = true;
+    });
+    cvs.addEventListener('mousemove', e => {
+        if (!isDragging || !dragStart) return;
+        const { sx, sy } = getCanvasXY(e.clientX, e.clientY);
+        const dx = sx - dragStart.sx, dy = sy - dragStart.sy;
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            dragStart.moved = true;
+            session.panX = panStart.panX + dx;
+            session.panY = panStart.panY + dy;
+            renderManualCanvas(session, cvs);
+        }
+    });
+    cvs.addEventListener('mouseup', e => {
+        if (dragStart && !dragStart.moved) handleTap(e.clientX, e.clientY);
+        isDragging = false; dragStart = null;
+    });
+    cvs.addEventListener('wheel', e => {
+        e.preventDefault();
+        const { sx, sy } = getCanvasXY(e.clientX, e.clientY);
+        const factor = e.deltaY < 0 ? 1.15 : 0.87;
+        const nz = Math.min(8, Math.max(0.5, session.zoom * factor));
+        session.panX = sx - (sx - session.panX) * (nz / session.zoom);
+        session.panY = sy - (sy - session.panY) * (nz / session.zoom);
+        session.zoom = nz;
+        renderManualCanvas(session, cvs);
+    }, { passive: false });
+
+    // Touch
+    cvs.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            lastTouchDist = Math.hypot(dx, dy);
+        } else {
+            const { sx, sy } = getCanvasXY(e.touches[0].clientX, e.touches[0].clientY);
+            dragStart = { sx, sy, moved: false };
+            panStart = { panX: session.panX, panY: session.panY };
+        }
+    }, { passive: false });
+
+    cvs.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const dist = Math.hypot(dx, dy);
+            if (lastTouchDist) {
+                const f = dist / lastTouchDist;
+                const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const { sx, sy } = getCanvasXY(mx, my);
+                const nz = Math.min(8, Math.max(0.5, session.zoom * f));
+                session.panX = sx - (sx - session.panX) * (nz / session.zoom);
+                session.panY = sy - (sy - session.panY) * (nz / session.zoom);
+                session.zoom = nz;
+            }
+            lastTouchDist = dist;
+            renderManualCanvas(session, cvs);
+        } else if (dragStart && e.touches.length === 1) {
+            const { sx, sy } = getCanvasXY(e.touches[0].clientX, e.touches[0].clientY);
+            const dx = sx - dragStart.sx, dy = sy - dragStart.sy;
+            if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                dragStart.moved = true;
+                session.panX = panStart.panX + dx;
+                session.panY = panStart.panY + dy;
+                renderManualCanvas(session, cvs);
+            }
+        }
+    }, { passive: false });
+
+    cvs.addEventListener('touchend', e => {
+        e.preventDefault();
+        lastTouchDist = null;
+        if (dragStart && !dragStart.moved && e.changedTouches.length === 1) {
+            handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+        }
+        dragStart = null;
+    }, { passive: false });
+}
+
+function updateGlobalManualCount() {
+    const total = manualSessions.reduce((s, sess) => s + sess.marks.length, 0);
+    const el = document.getElementById('manual-count');
+    if (el) el.textContent = total;
+}
+
+function clearAllManualMarks() {
+    manualSessions.forEach(session => {
+        session.marks = [];
+        const cvs = session.wrapper.querySelector('canvas');
+        if (cvs) renderManualCanvas(session, cvs);
+    });
+}
+
+function runBlueSuggest() {
+    manualSessions.forEach(session => {
+        const cvs = session.wrapper.querySelector('canvas');
+        if (!cvs || !session.img) return;
+        const ctx = cvs.getContext('2d');
+        const w = session.drawW, h = session.drawH;
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(session.img, 0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const data = imageData.data;
+
+        const sensitivity = parseInt(document.getElementById('detect-sensitivity').value);
+        const minB     = [140,120,100,80,60][sensitivity-1];
+        const rRatio   = [2.0,1.7,1.4,1.2,1.0][sensitivity-1];
+        const gRatio   = [1.6,1.4,1.2,1.0,0.8][sensitivity-1];
+        const clusterR = [30,40,55,70,90][sensitivity-1];
+        const minCluster=[6,4,3,2,1][sensitivity-1];
+        const stride = Math.max(2, Math.floor(Math.sqrt(w*h)/600)) * 4;
+
+        let pts = [];
+        for (let i = 0; i < data.length; i += stride) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            if (b >= minB && b > r*rRatio && b > g*gRatio) pts.push({ x:(i>>2)%w, y:Math.floor((i>>2)/w) });
+        }
+        const r2 = clusterR * clusterR;
+        let clusters = [];
+        for (const p of pts) {
+            let found = false;
+            for (const c of clusters) {
+                const dx=c.x-p.x, dy=c.y-p.y;
+                if (dx*dx+dy*dy < r2) { c.x=(c.x*c.size+p.x)/(c.size+1); c.y=(c.y*c.size+p.y)/(c.size+1); c.size++; found=true; break; }
+            }
+            if (!found) clusters.push({ x:p.x, y:p.y, size:1 });
+        }
+        session.marks = clusters.filter(c => c.size >= minCluster).map(c => ({ x:c.x, y:c.y }));
+        session.zoom = 1; session.panX = 0; session.panY = 0;
+        renderManualCanvas(session, cvs);
+    });
+}
+
+function confirmManualMarks() {
+    if (manualSessions.length === 0) { alert('先に写真をアップロードしてください。'); return; }
+    cumulativeHits = 0; individualGroupings = [];
+
+    manualSessions.forEach(session => {
+        const marks = session.marks;
+        const targetH = parseFloat(document.getElementById('cfg-target-height').value);
+        const cmPerPx = targetH / session.drawH;
+        let maxD = 0;
+        for (let i = 0; i < marks.length; i++)
+            for (let j = i+1; j < marks.length; j++) {
+                const dx=marks[i].x-marks[j].x, dy=marks[i].y-marks[j].y;
+                maxD = Math.max(maxD, Math.sqrt(dx*dx+dy*dy));
+            }
+        const groupCm = maxD * cmPerPx;
+        cumulativeHits += marks.length;
+        individualGroupings.push(groupCm);
+
+        const cvs = session.wrapper.querySelector('canvas');
+        if (cvs) {
+            const ctx = cvs.getContext('2d');
+            ctx.clearRect(0, 0, session.drawW, session.drawH);
+            ctx.drawImage(session.img, 0, 0, session.drawW, session.drawH);
+            marks.forEach((m, idx) => {
+                ctx.beginPath(); ctx.strokeStyle='#00d4ff'; ctx.lineWidth=3;
+                ctx.arc(m.x, m.y, 18, 0, Math.PI*2); ctx.stroke();
+                ctx.beginPath(); ctx.fillStyle='#ff3333';
+                ctx.arc(m.x, m.y, 5, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle='#00d4ff'; ctx.font='bold 13px monospace';
+                ctx.fillText('' + (idx+1), m.x+22, m.y+5);
+            });
+            ctx.fillStyle='rgba(0,0,0,0.75)'; ctx.fillRect(0,0,session.drawW,32);
+            ctx.fillStyle='#00d4ff'; ctx.font='bold 14px monospace';
+            ctx.fillText('T' + (session.targetIdx+1) + ': ' + marks.length + '発命中  散布' + groupCm.toFixed(1) + 'cm', 8, 22);
+        }
+    });
+    generateAssessment();
+}
+
+// setDeadTime: 不感時間は実銃0.10s固定
+
+function setAnalysisMode(mode) {
+    analysisMode = mode;
+    document.querySelectorAll('#acquisition-area .preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('mode-btn-' + mode).classList.add('active');
+    document.getElementById('mode-panel-seal').style.display   = mode === 'seal'   ? 'block' : 'none';
+    document.getElementById('mode-panel-manual').style.display = mode === 'manual' ? 'block' : 'none';
+    const labels = { seal: '写真をアップロード（シール検出）', manual: '写真をアップロード（手動マーク）' };
+    document.getElementById('upload-add-btn').style.display = 'none';
+    document.getElementById('upload-btn').textContent = labels[mode] || '写真を一括アップロード';
+}
+
+async function processMultipleImages(input, append = false) {
+    const files = Array.from(input.files);
+    const container = document.getElementById('canvas-list');
+    if (!append) {
+        container.innerHTML = "";
+        cumulativeHits = 0; individualGroupings = [];
+        manualSessions = [];
+    }
+    // 追加アップロードボタンを表示
+    document.getElementById('upload-add-btn').style.display = 'block';
+
+    for (let i = 0; i < files.length; i++) {
+        const rangeM = getRangeArray()[i] || 10;
+        const wrapper = document.createElement('div');
+        wrapper.className = "canvas-container";
+        wrapper.style.position = 'relative';
+
+        if (analysisMode === 'manual') {
+            // 手動モード: ズーム・マーキング可能なビューアを構築
+            initManualTarget(wrapper, files[i], i, rangeM);
+            container.appendChild(wrapper);
+            // 手動モードではここでは結果を記録しない（確定ボタン押下時に処理）
+            continue;
+        }
+
+        const cvs = document.createElement('canvas');
+        cvs.className = "shot-canvas";
+        wrapper.appendChild(cvs);
+        container.appendChild(wrapper);
+
+        const res = await new Promise(resolve => {
+            const imgEl = new Image();
+            imgEl.onload = async () => {
+                const ctx = cvs.getContext('2d', { willReadFrequently: true });
+                const MAX_W = 900;
+                let drawW = imgEl.width, drawH = imgEl.height;
+                if (drawW > MAX_W) { drawH = Math.round(drawH * MAX_W / drawW); drawW = MAX_W; }
+                cvs.width = drawW; cvs.height = drawH;
+                ctx.drawImage(imgEl, 0, 0, drawW, drawH);
+
+                const result = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
+                resolve(result);
+            };
+            imgEl.src = URL.createObjectURL(files[i]);
+        });
+
+        cumulativeHits += res.count;
+        individualGroupings.push(res.grouping);
+    }
+
+    if (analysisMode !== 'manual') generateAssessment();
+}
+
+/* ═══════════════════════════════════════════
+   AI デバッグ & プロンプトバリアント
+═══════════════════════════════════════════ */
+
+function analyzeBlueMarks(ctx, w, h, targetNum) {
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    const len = data.length;
+
+    // ── 感度設定（スライダーから取得） ──
+    const sensitivity = parseInt(document.getElementById('detect-sensitivity').value);
+    // sensitivity: 1=厳格 〜 5=緩い
+    const minB       = [140, 120, 100, 80, 60][sensitivity - 1];   // 青の最低値
+    const rRatio     = [2.0, 1.7, 1.4, 1.2, 1.0][sensitivity - 1]; // B > R × ratio
+    const gRatio     = [1.6, 1.4, 1.2, 1.0, 0.8][sensitivity - 1]; // B > G × ratio
+    const clusterR   = [30,  40,  55,  70,  90][sensitivity - 1];   // クラスタ半径px
+    const minCluster = [6,   4,   3,   2,   1][sensitivity - 1];    // 最小クラスタpx数
+
+    // ── ストライドは画素数に応じて調整（細かめ固定） ──
+    const stride = Math.max(2, Math.floor(Math.sqrt(w * h) / 600)) * 4;
+
+    let pts = [];
+    for (let i = 0; i < len; i += stride) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        if (b >= minB && b > r * rRatio && b > g * gRatio) {
+            pts.push({ x: (i >> 2) % w, y: Math.floor((i >> 2) / w) });
+        }
+    }
+
+    // ── クラスタリング（半径はpx単位、二乗で比較） ──
+    const r2 = clusterR * clusterR;
+    let clusters = [];
+    for (const p of pts) {
+        let found = false;
+        for (const c of clusters) {
+            const dx = c.x - p.x, dy = c.y - p.y;
+            if (dx*dx + dy*dy < r2) {
+                c.x = (c.x * c.size + p.x) / (c.size + 1);
+                c.y = (c.y * c.size + p.y) / (c.size + 1);
+                c.size++; found = true; break;
+            }
+        }
+        if (!found) clusters.push({ x: p.x, y: p.y, size: 1 });
+    }
+
+    // ── デバッグ情報をコンソールに出力 ──
+    console.log(`[T${targetNum}] stride=${stride} pts=${pts.length} clusters=${clusters.length}`);
+    console.log(`  設定: minB=${minB} rRatio=${rRatio} gRatio=${gRatio} clusterR=${clusterR} minCluster=${minCluster}`);
+    clusters.slice(0,10).forEach((c,i) => console.log(`  cluster[${i}] x=${c.x.toFixed(0)} y=${c.y.toFixed(0)} size=${c.size}`));
+
+    // ── 有効クラスタを弾痕として確定 ──
+    // 第1段階クラスタの中で minCluster 以上のものを弾痕として採用
+    // ※ 2段階マージは近接弾痕を誤結合するため廃止
+    const finalShots = clusters.filter(c => c.size >= minCluster);
+    console.log(`  → finalShots=${finalShots.length}`);
+
+    // ── 描画：検出した弾痕を円でマーク ──
+    finalShots.forEach(s => {
+        ctx.beginPath();
+        ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 4;
+        ctx.arc(s.x, s.y, clusterR * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+        // 中心点
+        ctx.beginPath();
+        ctx.fillStyle = '#ff0000';
+        ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // ── デバッグ用: 検出ピクセルを点で可視化（感度4以上） ──
+    if (sensitivity >= 4 && pts.length < 5000) {
+        ctx.fillStyle = 'rgba(255,255,0,0.6)';
+        pts.forEach(p => { ctx.fillRect(p.x-1, p.y-1, 3, 3); });
+    }
+
+    // ── ラベル表示 ──
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, w, 30);
+    ctx.fillStyle = '#00ff88'; ctx.font = `bold ${Math.max(14, w/50)}px monospace`;
+    ctx.fillText(`T${targetNum}: ${finalShots.length} hits  (pts:${pts.length} cls:${clusters.length})`, 8, 22);
+
+    const cmPerPx = parseFloat(document.getElementById('cfg-target-height').value) / h;
+    let maxD = 0;
+    for (let i = 0; i < finalShots.length; i++)
+        for (let j = i + 1; j < finalShots.length; j++) {
+            const dx = finalShots[i].x - finalShots[j].x;
+            const dy = finalShots[i].y - finalShots[j].y;
+            maxD = Math.max(maxD, Math.sqrt(dx*dx + dy*dy));
+        }
+    return { count: finalShots.length, grouping: maxD * cmPerPx };
+}
+
+/* ═══════════════════════════════════════════
+   GRADING
+═══════════════════════════════════════════ */
+function getGrade(actual, goal, isLowerBetter = true) {
+    if (actual === 0 && !isLowerBetter) return 'D';
+    const ratio = actual / goal;
+    if (isLowerBetter) {
+        if (ratio <= 0.85) return 'A';
+        if (ratio <= 1.15) return 'B';
+        if (ratio <= 1.40) return 'C';
+        return 'D';
+    } else {
+        if (ratio >= 1.10) return 'A';
+        if (ratio >= 0.90) return 'B';
+        if (ratio >= 0.70) return 'C';
+        return 'D';
+    }
+}
+
+/* ═══════════════════════════════════════════
+   ASSESSMENT
+═══════════════════════════════════════════ */
+function generateAssessment() {
+    const area = document.getElementById('assessment-area');
+    area.innerHTML = ""; area.style.display = 'block';
+
+    const preset = PRESETS[currentPreset] || null;
+    const cfg = {
+        totalShots: parseInt(document.getElementById('cfg-total-shots').value),
+        targetHits: parseInt(document.getElementById('cfg-target-hits').value),
+        group: parseFloat(document.getElementById('cfg-target-grouping').value),
+        first: parseFloat(document.getElementById('cfg-target-first').value),
+        split: parseFloat(document.getElementById('cfg-target-split').value),
+        reload: parseFloat(document.getElementById('cfg-target-reload').value) || 0,
+        reloadAt: parseInt(document.getElementById('cfg-reload-at').value) || 0,
+    };
+
+    // ── タイミング計算 ──
+    const firstShot = shotTimes[0] || 0;
+    const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt] != null)
+        ? Math.max(0, (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt - 1]) - cfg.first)
+        : 0;
+    let splits = [];
+    for (let i = 1; i < shotTimes.length; i++) {
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt)     continue;
+        if (cfg.reloadAt > 0 && i === cfg.reloadAt + 1) continue;
+        splits.push(shotTimes[i] - shotTimes[i - 1]);
+    }
+    const avgSplit = splits.length > 0 ? splits.reduce((a, b) => a + b, 0) / splits.length : 0;
+    const reloadFirstShot = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt + 1] != null && shotTimes[cfg.reloadAt] != null)
+        ? (shotTimes[cfg.reloadAt + 1] - shotTimes[cfg.reloadAt]) : null;
+    const totalTime = shotTimes[shotTimes.length - 1] || 0;
+    const maxGrp = Math.max(...individualGroupings, 0);
+    const mag1Splits = cfg.reloadAt > 1 ? cfg.reloadAt - 1 : 0;
+    const mag2Shots  = cfg.reloadAt > 0 ? cfg.totalShots - cfg.reloadAt - 1 : cfg.totalShots - 1;
+    const expectedTotal = cfg.reloadAt > 0
+        ? cfg.first + cfg.split * mag1Splits + cfg.reload + cfg.first + cfg.split * mag2Shots
+        : cfg.first + cfg.split * (cfg.totalShots - 1);
+
+    // シナリオ固有の合計時間目標
+    const goalTotal = (preset && preset.goalTotalTime) ? preset.goalTotalTime : expectedTotal;
+
+    finalStats = {
+        accuracy: {
+            hits:  { val: cumulativeHits, goal: cfg.targetHits, grade: getGrade(cumulativeHits, cfg.targetHits, false) },
+            group: { val: maxGrp,         goal: cfg.group,      grade: getGrade(maxGrp, cfg.group, true) }
+        },
+        speed: {
+            split: { val: avgSplit,  goal: cfg.split,    grade: getGrade(avgSplit, cfg.split, true) },
+            total: { val: totalTime, goal: goalTotal,    grade: getGrade(totalTime, goalTotal, true) },
+            first: { val: firstShot, goal: cfg.first,    grade: getGrade(firstShot, cfg.first, true) },
+            reloadFirst: reloadFirstShot != null
+                ? { val: reloadFirstShot, goal: cfg.first, grade: getGrade(reloadFirstShot, cfg.first, true) }
+                : null
+        },
+        control: {
+            split:    { val: avgSplit,   goal: cfg.split,   grade: getGrade(avgSplit, cfg.split, true) },
+            reload:   { val: reloadTime, goal: cfg.reload,  grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' },
+            headshot: null,   // チェックリスト: 成績確定後に入力
+        },
+        exposure: {
+            total:    { val: totalTime, goal: goalTotal, grade: getGrade(totalTime, goalTotal, true) },
+            checklist: null,  // チェックリスト: 成績確定後に入力
+        },
+        adapt: { grade: null, val: null },
+        scenarioType: preset ? preset.scenarioType : 'custom',
+        preset: preset,
+    };
+
+    const createDetailRow = (lbl, stat, unit, decimals=2) =>
+        `<div class="score-row"><span>${lbl}</span><div style="display:flex;align-items:center;">
+        <span class="val-main">${typeof stat.val === 'number' ? stat.val.toFixed(decimals) : stat.val}${unit}</span>
+        <span class="grade-badge grade-${stat.grade}">${stat.grade}</span></div></div>`;
+
+    // ── シナリオ別の制御・暴露・適応UI生成 ──
+    const stype = finalStats.scenarioType;
+
+    const controlHtml = (() => {
+        if (stype === 'posture') {
+            // 弾倉交換時間
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【制御 / Control】弾倉交換時間</span>
+                ${cfg.reloadAt > 0 ? createDetailRow("弾倉交換所要時間", finalStats.control.reload, "s") : '<div style="color:#555;font-size:0.75rem;padding:4px;">計測なし（リロード設定なし）</div>'}
+            </div>`;
+        } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+            // 5発目頭部命中チェック
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【制御 / Control】5発目 頭部命中</span>
+                <div style="display:flex; gap:10px; align-items:center; padding:6px 0;">
+                    <button id="ctrl-head-yes" onclick="setHeadshot(true)"
+                        style="flex:1; padding:8px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.8rem;">
+                        命中あり
+                    </button>
+                    <button id="ctrl-head-no" onclick="setHeadshot(false)"
+                        style="flex:1; padding:8px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.8rem;">
+                        命中なし
+                    </button>
+                </div>
+                <div id="ctrl-head-result" style="font-size:0.72rem; color:#555; font-family:monospace; padding:2px 0;">
+                    未入力
+                </div>
+            </div>`;
+        }
+        return '';
+    })();
+
+    const exposureHtml = (() => {
+        if (stype === 'posture') {
+            // 目標ごとの暴露有無チェックリスト
+            const tgts = preset.targetGroups || [];
+            const checks = tgts.map((tg, i) => `
+                <div style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #111;">
+                    <span style="font-size:0.75rem; color:#888; min-width:60px;">${tg.label}</span>
+                    <button id="exp-btn-${i}-yes" onclick="setExposure(${i}, true)"
+                        style="flex:1; padding:5px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.72rem;">
+                        暴露あり
+                    </button>
+                    <button id="exp-btn-${i}-no" onclick="setExposure(${i}, false)"
+                        style="flex:1; padding:5px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.72rem;">
+                        暴露なし
+                    </button>
+                </div>`).join('');
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【暴露 / Exposure】目標ごと暴露有無</span>
+                <div style="font-size:0.65rem; color:#555; margin-bottom:6px;">暴露なし = 良好。目標値: ${preset.goalExposureCount}回以下で合格</div>
+                ${checks}
+                <div id="exp-summary" style="font-size:0.72rem; color:#555; font-family:monospace; padding:6px 0 2px;">未入力</div>
+            </div>`;
+        } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+            return ''; // 暴露評価なし
+        }
+        // カスタム: 合計時間のみ
+        return `
+        <div class="eval-group">
+            <span class="eval-group-title">【暴露 / Exposure】</span>
+            ${createDetailRow("射撃合計時間", finalStats.exposure.total, "s")}
+        </div>`;
+    })();
+
+    const adaptHtml = (() => {
+        if (stype === 'suppress_night') {
+            // 昼間セッションを参照
+            const daySessions = getSessions().filter(s => s.scenarioType === 'suppress_day').sort((a,b) => b.id - a.id);
+            if (daySessions.length === 0) {
+                return `
+                <div class="eval-group">
+                    <span class="eval-group-title">【適応 / Adapt】昼間比較</span>
+                    <div style="color:#555; font-size:0.75rem; padding:6px 0;">昼間セッションが見つかりません。先に制圧致命射撃（昼間）を実施してください。</div>
+                </div>`;
+            }
+            const day = daySessions[0];
+            const dayTotal = day.stats?.speed?.total?.val || day.stats?.exposure?.total?.val || null;
+            const nightTotal = totalTime;
+            let adaptGrade = 'B', adaptText = '--';
+            if (dayTotal && dayTotal > 0) {
+                const degradation = (nightTotal - dayTotal) / dayTotal;
+                finalStats.adapt.val = degradation;
+                const limit = preset.adaptDegradationLimit || 0.20;
+                if (degradation <= 0)             { adaptGrade = 'A'; adaptText = `+${Math.abs(degradation*100).toFixed(1)}% 改善`; }
+                else if (degradation <= limit * 0.5) { adaptGrade = 'A'; adaptText = `${(degradation*100).toFixed(1)}% 悪化（許容内）`; }
+                else if (degradation <= limit)       { adaptGrade = 'B'; adaptText = `${(degradation*100).toFixed(1)}% 悪化（許容内）`; }
+                else if (degradation <= limit * 1.4) { adaptGrade = 'C'; adaptText = `${(degradation*100).toFixed(1)}% 悪化`; }
+                else                                 { adaptGrade = 'D'; adaptText = `${(degradation*100).toFixed(1)}% 悪化（許容超過）`; }
+                finalStats.adapt.grade = adaptGrade;
+            }
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【適応 / Adapt】昼間比 パフォーマンス変化</span>
+                <div class="score-row"><span>合計時間 昼間比</span>
+                    <div style="display:flex;align-items:center;">
+                    <span class="val-main">${adaptText}</span>
+                    <span class="grade-badge grade-${adaptGrade}">${adaptGrade}</span>
+                    </div>
+                </div>
+                <div style="font-size:0.65rem; color:#555; margin-top:4px;">
+                    参照セッション: ${day.shooter} / ${day.timestamp.slice(0,10)} / 合計時間 ${dayTotal ? dayTotal.toFixed(2)+'s' : '--'}
+                </div>
+            </div>`;
+        }
+        return ''; // 昼間・姿勢変換は適応評価なし
+    })();
+
+    // ── 速度・精度の表示 ──
+    const speedHtml = `
+    <div class="eval-group">
+        <span class="eval-group-title">【速度 / Speed】</span>
+        ${createDetailRow("平均射撃間隔", finalStats.speed.split, "s")}
+        ${createDetailRow("射撃合計時間", finalStats.speed.total, "s")}
+    </div>`;
+
+    const accuracyHtml = `
+    <div class="eval-group">
+        <span class="eval-group-title">【精度 / Accuracy】</span>
+        ${createDetailRow("命中数", finalStats.accuracy.hits, "発", 0)}
+        ${createDetailRow("最大散布界", finalStats.accuracy.group, "cm")}
+    </div>`;
+
+    area.innerHTML = `
+        <div class="card">
+            <h2>4. Session Assessment</h2>
+            <div style="font-size:0.7rem; color:#555; margin-bottom:10px; font-family:monospace;">
+                ${preset ? preset.label : 'カスタム'}
+            </div>
+
+            <div style="display:flex; justify-content:center; background:#000; padding:10px; border-radius:6px; margin-bottom:12px;">
+                <canvas id="radarCanvas" width="400" height="400" style="width:260px;height:260px;"></canvas>
+            </div>
+
+            ${speedHtml}
+            ${accuracyHtml}
+            ${controlHtml}
+            ${exposureHtml}
+            ${adaptHtml}
+
+            <h2 style="margin-top:16px;">Shot Timing Graph</h2>
+            <div class="timing-graph-wrap">
+                <canvas id="timingCanvas"></canvas>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
+                <button onclick="saveSession()" class="btn-secondary">セッション保存</button>
+                <button onclick="exportFullCSV()" class="btn-secondary">CSV出力</button>
+            </div>
+        </div>
+    `;
+    setTimeout(() => { drawRadar(); drawTimingGraph(); }, 80);
+}
+
+// ── チェックリスト入力関数 ──
+let exposureChecks = [];  // 暴露チェック結果配列
+
+function setHeadshot(hit) {
+    finalStats.control.headshot = { val: hit ? 1 : 0, grade: hit ? 'A' : 'D' };
+    document.getElementById('ctrl-head-yes').style.background = hit ? '#003300' : '#111';
+    document.getElementById('ctrl-head-yes').style.borderColor = hit ? '#32d74b' : '#444';
+    document.getElementById('ctrl-head-yes').style.color = hit ? '#32d74b' : '#888';
+    document.getElementById('ctrl-head-no').style.background = !hit ? '#330000' : '#111';
+    document.getElementById('ctrl-head-no').style.borderColor = !hit ? '#ff3b30' : '#444';
+    document.getElementById('ctrl-head-no').style.color = !hit ? '#ff3b30' : '#888';
+    document.getElementById('ctrl-head-result').textContent = hit ? '頭部命中あり — A' : '頭部命中なし — D';
+    document.getElementById('ctrl-head-result').style.color = hit ? '#32d74b' : '#ff3b30';
+    drawRadar();
+}
+
+function setExposure(idx, hasExposure) {
+    const preset = PRESETS[currentPreset];
+    if (!preset) return;
+    if (!finalStats.exposure.checklist) {
+        finalStats.exposure.checklist = new Array(preset.targetGroups.length).fill(null);
+    }
+    finalStats.exposure.checklist[idx] = hasExposure;
+
+    ['yes','no'].forEach(v => {
+        const btn = document.getElementById(`exp-btn-${idx}-${v}`);
+        const active = v === 'yes' ? hasExposure : !hasExposure;
+        btn.style.background = active ? (v==='yes' ? '#330000':'#003300') : '#111';
+        btn.style.borderColor = active ? (v==='yes' ? '#ff3b30':'#32d74b') : '#444';
+        btn.style.color = active ? (v==='yes' ? '#ff3b30':'#32d74b') : '#888';
+    });
+
+    const checks = finalStats.exposure.checklist;
+    const filled = checks.filter(v => v !== null).length;
+    const count = checks.filter(v => v === true).length;
+    const goal = preset.goalExposureCount ?? 1;
+    const expGrade = count <= goal ? (count === 0 ? 'A' : 'B') : (count <= goal + 1 ? 'C' : 'D');
+    finalStats.exposure.checkGrade = expGrade;
+
+    const summary = document.getElementById('exp-summary');
+    if (summary) {
+        summary.textContent = filled < checks.length
+            ? `${filled}/${checks.length} 入力済み`
+            : `暴露回数: ${count}回 / 目標: ${goal}回以下 → ${expGrade}`;
+        summary.style.color = filled < checks.length ? '#555' : { A:'#32d74b', B:'#ffcc00', C:'#ff9500', D:'#ff3b30' }[expGrade];
+    }
+    drawRadar();
+}
+
+/* ═══════════════════════════════════════════
+   RADAR CHART (強化版)
+═══════════════════════════════════════════ */
+function drawRadar() {
+    const cvs = document.getElementById('radarCanvas'); if (!cvs) return;
+    if (!finalStats) return;
+
+    const stype = finalStats.scenarioType || 'custom';
+    const gradeToScore = g => ({ 'A':1.0, 'B':0.75, 'C':0.5, 'D':0.25 }[g] || 0.25);
+    const avgScore = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+    const scoreToGrade = s => s>=0.875?'A':s>=0.625?'B':s>=0.375?'C':'D';
+
+    // ── シナリオ別の評価軸を構築 ──
+    // 評価する軸のみ含める（評価しない軸はスキップ）
+    const axes = [];
+
+    // 速度: 常に評価（射撃間隔 + 合計時間）
+    axes.push({
+        label: '速度',
+        score: avgScore([gradeToScore(finalStats.speed.split.grade), gradeToScore(finalStats.speed.total.grade)])
+    });
+
+    // 精度: 常に評価（命中数 + 散布界）
+    axes.push({
+        label: '精度',
+        score: avgScore([gradeToScore(finalStats.accuracy.hits.grade), gradeToScore(finalStats.accuracy.group.grade)])
+    });
+
+    // 制御: シナリオ依存
+    if (stype === 'posture') {
+        // 弾倉交換時間のみ
+        axes.push({ label: '制御', score: gradeToScore(finalStats.control.reload.grade) });
+    } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+        // 頭部命中チェック
+        const hs = finalStats.control.headshot;
+        axes.push({ label: '制御', score: hs ? gradeToScore(hs.grade) : 0.5 });
+    } else {
+        // カスタム: 連射間隔
+        axes.push({ label: '制御', score: gradeToScore(finalStats.control.split.grade) });
+    }
+
+    // 暴露: 姿勢変換のみ
+    if (stype === 'posture') {
+        const expG = finalStats.exposure.checkGrade || 'B';
+        axes.push({ label: '暴露', score: gradeToScore(expG) });
+    }
+
+    // 適応: 夜間のみ
+    if (stype === 'suppress_night' && finalStats.adapt.grade) {
+        axes.push({ label: '適応', score: gradeToScore(finalStats.adapt.grade) });
+    }
+
+    const N = axes.length;
+    const ctx = cvs.getContext('2d');
+    const r = 110, cx = 200, cy = 200;
+    ctx.clearRect(0, 0, 400, 400);
+    ctx.textAlign = "center";
+
+    // グリッド
+    const ranks = ["D","C","B","A"];
+    for (let j = 1; j <= 4; j++) {
+        ctx.beginPath();
+        ctx.strokeStyle = j === 3 ? "rgba(255,204,0,0.5)" : "#1e1e1e";
+        ctx.lineWidth = j === 3 ? 1.5 : 1;
+        for (let i = 0; i < N; i++) {
+            const a = (2*Math.PI/N)*i - Math.PI/2;
+            const x = cx + (r*j/4)*Math.cos(a), y = cy + (r*j/4)*Math.sin(a);
+            i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+        }
+        ctx.closePath(); ctx.stroke();
+        ctx.fillStyle = j === 3 ? "rgba(255,204,0,0.5)" : "#333";
+        ctx.font = "9px 'Share Tech Mono', monospace";
+        const ra = -Math.PI/2;
+        ctx.fillText(ranks[j-1], cx + (r*j/4)*Math.cos(ra)+6, cy + (r*j/4)*Math.sin(ra)+4);
+    }
+    // 軸線
+    for (let i = 0; i < N; i++) {
+        const a = (2*Math.PI/N)*i - Math.PI/2;
+        ctx.beginPath(); ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+        ctx.moveTo(cx, cy); ctx.lineTo(cx + r*Math.cos(a), cy + r*Math.sin(a)); ctx.stroke();
+    }
+    // データポリゴン
+    ctx.fillStyle = "rgba(255,204,0,0.15)"; ctx.strokeStyle = "rgba(255,204,0,0.8)"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    axes.forEach(({ score }, i) => {
+        const a = (2*Math.PI/N)*i - Math.PI/2;
+        const x = cx + r*score*Math.cos(a), y = cy + r*score*Math.sin(a);
+        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // ラベル & グレードバッジ
+    axes.forEach(({ label, score }, i) => {
+        const a = (2*Math.PI/N)*i - Math.PI/2;
+        const lx = cx + (r+42)*Math.cos(a), ly = cy + (r+42)*Math.sin(a);
+        ctx.fillStyle = "#ccc"; ctx.font = "bold 13px 'Barlow Condensed', sans-serif";
+        ctx.fillText(label, lx, ly);
+        const gx = cx + r*score*Math.cos(a), gy = cy + r*score*Math.sin(a);
+        const grade = scoreToGrade(score);
+        const col = grade==='A'?"#32d74b":grade==='B'?"#ffcc00":grade==='C'?"#ff9500":"#ff3b30";
+        ctx.beginPath(); ctx.fillStyle = col; ctx.arc(gx, gy, 10, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#000"; ctx.font = "bold 11px 'Share Tech Mono', monospace";
+        ctx.fillText(grade, gx, gy+4);
+    });
+}
+
+/* ═══════════════════════════════════════════
+   SHOT TIMING GRAPH (新機能)
+═══════════════════════════════════════════ */
+function drawTimingGraph() {
+    const cvs = document.getElementById('timingCanvas'); if (!cvs) return;
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width = cvs.offsetWidth * dpr || 300 * dpr;
+    cvs.height = 120 * dpr;
+    cvs.style.height = '120px';
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = cvs.offsetWidth || 300, H = 120;
+    ctx.clearRect(0, 0, W, H);
+
+    if (shotTimes.length < 1) {
+        ctx.fillStyle = '#444'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('発射データなし', W/2, H/2); return;
+    }
+
+    // 1発目 = スタートから初弾までの時間、2発目以降 = 前発との間隔
+    const bars = [{ s: shotTimes[0], isFirst: true }];
+    for (let i = 1; i < shotTimes.length; i++) bars.push({ s: shotTimes[i] - shotTimes[i-1], isFirst: false });
+
+    const targetFirst = parseFloat(document.getElementById('cfg-target-first').value);
+    const targetSplit = parseFloat(document.getElementById('cfg-target-split').value);
+    const maxS = Math.max(...bars.map(b => b.s)) * 1.15;
+    const pad = { l: 30, r: 10, t: 10, b: 30 };
+    const gW = W - pad.l - pad.r, gH = H - pad.t - pad.b;
+    const barW = Math.max(6, gW / bars.length - 4);
+
+    // グリッド
+    ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 1;
+    [0.25, 0.5, 0.75, 1.0].forEach(f => {
+        const y = pad.t + gH * (1 - f);
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + gW, y); ctx.stroke();
+    });
+
+    // 目標ライン（初弾）
+    const tyFirst = pad.t + gH * (1 - Math.min(targetFirst / maxS, 1));
+    ctx.strokeStyle = 'rgba(100,180,255,0.5)'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(pad.l, tyFirst); ctx.lineTo(pad.l + barW + 4, tyFirst); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 目標ライン（連射間隔）
+    const tySplit = pad.t + gH * (1 - Math.min(targetSplit / maxS, 1));
+    ctx.strokeStyle = 'rgba(255,204,0,0.6)'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath(); ctx.moveTo(pad.l + barW + 4, tySplit); ctx.lineTo(pad.l + gW, tySplit); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,204,0,0.8)'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('GOAL', pad.l + barW + 6, tySplit - 3);
+
+    // バー描画
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
+    bars.forEach((b, i) => {
+        const ratio = b.s / maxS;
+        const x = pad.l + i * (gW / bars.length) + (gW / bars.length - barW) / 2;
+        const bH = gH * ratio;
+        const y = pad.t + gH - bH;
+
+        let color;
+        if (b.isFirst) {
+            color = b.s <= targetFirst * 1.1 ? '#32d74b' : '#ff3b30';
+        } else {
+            const isReload = reloadAt > 0 && i === reloadAt;
+            color = isReload ? '#007aff' : (b.s <= targetSplit * 1.1 ? '#32d74b' : '#ff3b30');
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, barW, bH);
+
+        ctx.fillStyle = '#666'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`#${i+1}`, x + barW/2, H - 4);
+        ctx.fillStyle = '#888';
+        ctx.fillText(b.s.toFixed(2), x + barW/2, y - 3);
+    });
+
+    // Y軸ラベル
+    ctx.fillStyle = '#555'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+    ctx.fillText('0', pad.l - 3, pad.t + gH);
+    ctx.fillText(maxS.toFixed(1)+'s', pad.l - 3, pad.t + 8);
+}
+
+/* ═══════════════════════════════════════════
+   ASSESSMENT TAB  (3シナリオ総合評価)
+═══════════════════════════════════════════ */
+
+// グレード変換ユーティリティ（gradeAvg は renderHistory 側にも存在するため共有版として定義）
+const GRADE_SCORE = { 'A':4,'B':3,'C':2,'D':1 };
+function g2s(g) { return GRADE_SCORE[g] || null; }
+function s2g(s) { return s>=3.5?'A':s>=2.5?'B':s>=1.5?'C':'D'; }
+function avgGradeOf(grades) {
+    const vals = grades.map(g2s).filter(Boolean);
+    if (!vals.length) return null;
+    return s2g(vals.reduce((a,b)=>a+b,0)/vals.length);
+}
+
+let currentAssessShooter = null;
+
+function renderAssessment() {
+    const sessions = getSessions();
+    // 射手一覧を収集
+    const shooters = [...new Set(sessions.map(s => s.shooter))];
+    const btnsEl = document.getElementById('assess-shooter-btns');
+    if (!shooters.length) {
+        btnsEl.innerHTML = '';
+        document.getElementById('assess-body').innerHTML =
+            '<div style="color:#333;font-size:0.75rem;font-family:monospace;padding:20px 0;text-align:center;">セッションを保存してください</div>';
+        return;
+    }
+    // デフォルト選択
+    if (!currentAssessShooter || !shooters.includes(currentAssessShooter))
+        currentAssessShooter = shooters[0];
+
+    btnsEl.innerHTML = shooters.map(sh => `
+        <button onclick="selectAssessShooter('${sh}')"
+            style="padding:5px 12px; border-radius:4px; border:1px solid ${sh===currentAssessShooter?'var(--primary)':'#333'};
+                   background:${sh===currentAssessShooter?'#1a1400':'#111'}; color:${sh===currentAssessShooter?'var(--primary)':'#888'};
+                   font-size:0.75rem; cursor:pointer; font-family:monospace;">
+            ${sh}
+        </button>`).join('');
+
+    renderAssessBody(sessions, currentAssessShooter);
+}
+
+function selectAssessShooter(shooter) {
+    currentAssessShooter = shooter;
+    renderAssessment();
+}
+
+function renderAssessBody(sessions, shooter) {
+    const el = document.getElementById('assess-body');
+    const mine = sessions.filter(s => s.shooter === shooter);
+
+    // ── 各シナリオの指標スコアを抽出（前方宣言済み）──
+    // シナリオ別最良成績を選択（評価済み指標の平均グレード点が最高のセッション）
+    function sessionScore(s) {
+        if (!s) return 0;
+        const sc = extractScores(s);
+        if (!sc) return 0;
+        const grades = [sc.speed, sc.accuracy, sc.control, sc.exposure, sc.adapt].filter(Boolean);
+        if (!grades.length) return 0;
+        return grades.map(g2s).filter(Boolean).reduce((a,b)=>a+b,0) / grades.length;
+    }
+    const byType = {};
+    mine.forEach(s => {
+        const st = s.scenarioType;
+        if (!byType[st] || sessionScore(s) > sessionScore(byType[st])) {
+            byType[st] = s;
+        }
+    });
+    const P = byType['posture'];
+    const D = byType['suppress_day'];
+    const N = byType['suppress_night'];
+
+    // ── 各シナリオの指標スコアを抽出 ──
+    // 返り値: { speed, accuracy, control, exposure, adapt } それぞれ grade or null
+    function extractScores(s) {
+        if (!s) return null;
+        const st = s.scenarioType, stats = s.stats;
+        const speed    = avgGradeOf([stats?.speed?.split?.grade || stats?.speed?.first?.grade]);
+        const accuracy = avgGradeOf([stats?.accuracy?.hits?.grade, stats?.accuracy?.group?.grade]);
+        let control = null, exposure = null, adapt = null;
+        if (st === 'posture') {
+            control  = stats?.control?.reload?.grade || null;
+            exposure = stats?.exposure?.checkGrade   || null;
+        } else if (st === 'suppress_day') {
+            control  = stats?.control?.headshot?.grade || null;
+        } else if (st === 'suppress_night') {
+            control  = stats?.control?.headshot?.grade || null;
+            adapt    = stats?.adapt?.grade             || null;
+        }
+        return { speed, accuracy, control, exposure, adapt };
+    }
+
+    const scP = extractScores(P);
+    const scD = extractScores(D);
+    const scN = extractScores(N);
+
+    // ── 総合スコア計算（評価した指標のみ均等荷重）──
+    const allGrades = [
+        scP?.speed, scP?.accuracy, scP?.control, scP?.exposure,
+        scD?.speed, scD?.accuracy, scD?.control,
+        scN?.speed, scN?.accuracy, scN?.control, scN?.adapt,
+    ].filter(Boolean);
+    const overallGrade = allGrades.length ? avgGradeOf(allGrades) : null;
+    const overallScore = allGrades.length ? allGrades.map(g2s).filter(Boolean).reduce((a,b)=>a+b,0)/allGrades.length : null;
+
+    // ── 適応指標：速度・精度・合計時間の昼夜比較 ──
+    // 夜間の adapt grade を再計算（速度・精度・合計時間の3項目平均悪化率）
+    let adaptDetail = null;
+    if (D && N) {
+        const dSpeedVal  = D.stats?.speed?.split?.val  || D.stats?.speed?.first?.val;
+        const dAccVal    = D.stats?.accuracy?.group?.val; // 散布界（低い方が良い）
+        const dHitsRate  = D.hits / (D.shotTimes?.length || 1);
+        const dTotalVal  = D.stats?.speed?.total?.val  || D.stats?.exposure?.total?.val;
+
+        const nSpeedVal  = N.stats?.speed?.split?.val  || N.stats?.speed?.first?.val;
+        const nAccVal    = N.stats?.accuracy?.group?.val;
+        const nHitsRate  = N.hits / (N.shotTimes?.length || 1);
+        const nTotalVal  = N.stats?.speed?.total?.val  || N.stats?.exposure?.total?.val;
+
+        const limit = 0.20;
+        const degradRatios = [];
+        if (dSpeedVal  && nSpeedVal)  degradRatios.push((nSpeedVal  - dSpeedVal)  / dSpeedVal);   // 間隔：増加が悪化
+        if (dAccVal    && nAccVal)    degradRatios.push((nAccVal    - dAccVal)    / dAccVal);      // 散布：増加が悪化
+        if (dHitsRate  && nHitsRate)  degradRatios.push((dHitsRate  - nHitsRate)  / dHitsRate);   // 命中率：減少が悪化
+        if (dTotalVal  && nTotalVal)  degradRatios.push((nTotalVal  - dTotalVal)  / dTotalVal);   // 合計時間：増加が悪化
+
+        if (degradRatios.length) {
+            const avgDegrad = degradRatios.reduce((a,b)=>a+b,0) / degradRatios.length;
+            let ag;
+            if (avgDegrad <= 0)          ag = 'A';
+            else if (avgDegrad <= limit*0.5) ag = 'A';
+            else if (avgDegrad <= limit)     ag = 'B';
+            else if (avgDegrad <= limit*1.4) ag = 'C';
+            else                             ag = 'D';
+            adaptDetail = { grade: ag, pct: (avgDegrad*100).toFixed(1), ratios: degradRatios, limit };
+            // Nのstatsに反映
+            if (N.stats?.adapt) N.stats.adapt.grade = ag;
+        }
+    }
+
+    // ── HTML生成 ──
+    const gcol = g => g==='A'?'#32d74b':g==='B'?'#ffcc00':g==='C'?'#ff9500':g==='D'?'#ff3b30':'#444';
+    const gbadge = (g, size='28px') => g
+        ? `<div class="grade-badge grade-${g}" style="width:${size};height:${size};display:inline-flex;align-items:center;justify-content:center;font-size:0.85rem;">${g}</div>`
+        : `<div style="width:${size};height:${size};display:inline-flex;align-items:center;justify-content:center;color:#333;font-size:0.7rem;border:1px solid #1a1a1a;border-radius:4px;">—</div>`;
+
+    const scenRow = (label, sc, date) => {
+        if (!sc) return `<div style="color:#333;font-size:0.72rem;padding:6px 0;border-bottom:1px solid #111;">${label}: 未実施</div>`;
+        return `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #0a0a0a;font-size:0.72rem;">
+            <span style="color:#666;min-width:90px;font-family:monospace;">${label}</span>
+            ${gbadge(sc.speed)} <span style="color:#333;font-size:0.6rem;">速度</span>
+            ${gbadge(sc.accuracy)} <span style="color:#333;font-size:0.6rem;">精度</span>
+            ${gbadge(sc.control)} <span style="color:#333;font-size:0.6rem;">制御</span>
+            ${sc.exposure != null ? gbadge(sc.exposure) + '<span style="color:#333;font-size:0.6rem;">暴露</span>' : ''}
+            ${sc.adapt    != null ? gbadge(sc.adapt)    + '<span style="color:#333;font-size:0.6rem;">適応</span>' : ''}
+            <span style="color:#333;font-size:0.6rem;margin-left:auto;">${date||''}</span>
+        </div>`;
+    };
+
+    // ── 適応詳細テキスト ──
+    const adaptText = adaptDetail ? (() => {
+        const labels = ['射撃間隔','散布界','命中率','合計時間'];
+        const items = adaptDetail.ratios.map((r,i) =>
+            `<span style="color:${r>0?'#ff9500':'#32d74b'}">${labels[i]}: ${r>0?'+':''}${(r*100).toFixed(1)}%</span>`
+        ).join('  ');
+        return `<div style="font-size:0.65rem; color:#555; margin-top:6px; line-height:1.8;">
+            昼夜変化（均等荷重平均 ${adaptDetail.pct>0?'+':''}${adaptDetail.pct}%） 許容: ${(adaptDetail.limit*100).toFixed(0)}%以内<br>
+            ${items}
+        </div>`;
+    })() : '';
+
+    el.innerHTML = `
+    <!-- 総合グレード -->
+    <div style="text-align:center; padding:16px 0 12px; border-bottom:1px solid #1a1a1a; margin-bottom:14px;">
+        <div style="font-size:0.6rem; color:#444; letter-spacing:2px; margin-bottom:6px;">OVERALL GRADE</div>
+        <div style="font-size:3.5rem; font-family:'Share Tech Mono',monospace; font-weight:bold; color:${gcol(overallGrade)}; line-height:1;">
+            ${overallGrade || '--'}
+        </div>
+        <div style="font-size:0.65rem; color:#444; margin-top:4px;">${allGrades.length}指標均等荷重平均</div>
+    </div>
+
+    <!-- シナリオ別グレード行 -->
+    <div style="margin-bottom:14px;">
+        ${scenRow('至近(姿勢変換)', scP, P?.timestamp?.slice(5,10))}
+        ${scenRow('制圧致命(昼間)', scD, D?.timestamp?.slice(5,10))}
+        ${scenRow('制圧致命(夜間)', scN, N?.timestamp?.slice(5,10))}
+    </div>
+    ${adaptText}
+
+    <!-- 5つのレーダーチャート -->
+    <div style="margin-top:16px;">
+        <div style="font-size:0.65rem; color:#444; letter-spacing:1px; margin-bottom:10px;">RADAR CHARTS</div>
+
+        <!-- 総合 -->
+        <div style="font-size:0.68rem; color:#666; margin-bottom:4px;">総合</div>
+        <div style="background:#000; border-radius:6px; padding:8px; margin-bottom:12px;">
+            <canvas id="radarOverall" width="400" height="400" style="width:100%;max-width:260px;height:auto;display:block;margin:0 auto;"></canvas>
+        </div>
+
+        <!-- シナリオ別 -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">至近(姿勢変換)</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarPosture" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">制圧致命(昼間)</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarDay" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">制圧致命(夜間)</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarNight" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:0.65rem; color:#666; margin-bottom:4px; text-align:center;">適応（昼夜比較）</div>
+                <div style="background:#000; border-radius:6px; padding:6px;">
+                    <canvas id="radarAdapt" width="300" height="300" style="width:100%;height:auto;display:block;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CompareへのリンクボタンとID受け渡し -->
+    <div style="margin-top:16px;">
+        <button onclick="openCombatSimFromAssessment('${shooter}')"
+            style="width:100%; background:#1a0a00; border:1px solid #ff6600; color:#ff9933;
+                   padding:10px; border-radius:4px; font-size:0.85rem; font-weight:bold; cursor:pointer;">
+            この総合結果でCombat Simulationを実行
+        </button>
+    </div>
+    `;
+
+    // レーダー描画
+    setTimeout(() => {
+        drawAssessRadar('radarOverall', buildOverallAxes(scP, scD, scN, adaptDetail), 150);
+        drawAssessRadar('radarPosture', buildScenarioAxes(scP, 'posture'), 110);
+        drawAssessRadar('radarDay',     buildScenarioAxes(scD, 'suppress_day'), 110);
+        drawAssessRadar('radarNight',   buildScenarioAxes(scN, 'suppress_night'), 110);
+        drawAssessRadar('radarAdapt',   buildAdaptAxes(scD, scN, D, N), 110);
+    }, 80);
+
+    // 総合評価をグローバルに保持（Combat Simから参照）
+    window._assessResult = { shooter, scP, scD, scN, overallGrade, overallScore, adaptDetail, sessions: {P,D,N} };
+}
+
+// ── レーダー軸構築 ──
+// 総合: 3シナリオを5指標（速度・精度・制御・暴露・適応）に統合
+// 各指標は評価したシナリオの平均グレードを使用
+function buildOverallAxes(scP, scD, scN, adaptDetail) {
+    const axes = [];
+
+    // 速度: 3シナリオの速度グレードを均等平均
+    const speedGrades = [scP?.speed, scD?.speed, scN?.speed].filter(Boolean);
+    if (speedGrades.length)
+        axes.push({ label: '速度', grade: avgGradeOf(speedGrades) });
+
+    // 精度: 3シナリオの精度グレードを均等平均
+    const accGrades = [scP?.accuracy, scD?.accuracy, scN?.accuracy].filter(Boolean);
+    if (accGrades.length)
+        axes.push({ label: '精度', grade: avgGradeOf(accGrades) });
+
+    // 制御: 3シナリオの制御グレードを均等平均（内容はシナリオ毎に異なるが同一軸）
+    const ctlGrades = [scP?.control, scD?.control, scN?.control].filter(Boolean);
+    if (ctlGrades.length)
+        axes.push({ label: '制御', grade: avgGradeOf(ctlGrades) });
+
+    // 暴露: 姿勢変換のみ評価
+    if (scP?.exposure)
+        axes.push({ label: '暴露', grade: scP.exposure });
+
+    // 適応: 夜間シナリオの昼夜比較
+    if (adaptDetail?.grade)
+        axes.push({ label: '適応', grade: adaptDetail.grade });
+
+    return axes;
+}
+
+function buildScenarioAxes(sc, stype) {
+    if (!sc) return [];
+    const axes = [{ label:'速度', grade: sc.speed }, { label:'精度', grade: sc.accuracy }];
+    if (sc.control)  axes.push({ label: stype==='posture'?'弾倉交換':'頭部命中', grade: sc.control });
+    if (sc.exposure) axes.push({ label:'暴露', grade: sc.exposure });
+    if (sc.adapt)    axes.push({ label:'適応', grade: sc.adapt });
+    return axes;
+}
+
+function buildAdaptAxes(scD, scN, Dsess, Nsess) {
+    // 昼夜の各指標を対比して表示
+    const axes = [];
+    if (scD?.speed && scN?.speed) {
+        const g = avgGradeOf([scD.speed, scN.speed]);
+        axes.push({ label:'速度', grade: g });
+    }
+    if (scD?.accuracy && scN?.accuracy) {
+        const g = avgGradeOf([scD.accuracy, scN.accuracy]);
+        axes.push({ label:'精度', grade: g });
+    }
+    if (scD?.control && scN?.control) {
+        const g = avgGradeOf([scD.control, scN.control]);
+        axes.push({ label:'制御', grade: g });
+    }
+    // 適応指標
+    const adg = Nsess?.stats?.adapt?.grade;
+    if (adg) axes.push({ label:'適応', grade: adg });
+    return axes;
+}
+
+// ── 汎用レーダー描画関数 ──
+function drawAssessRadar(canvasId, axes, r) {
+    const cvs = document.getElementById(canvasId); if (!cvs) return;
+    if (!axes || !axes.length) {
+        const ctx = cvs.getContext('2d');
+        ctx.clearRect(0,0,cvs.width,cvs.height);
+        ctx.fillStyle='#333'; ctx.font='11px monospace'; ctx.textAlign='center';
+        ctx.fillText('データなし', cvs.width/2, cvs.height/2); return;
+    }
+    const N = axes.length;
+    const W = cvs.width, H = cvs.height;
+    const cx = W/2, cy = H/2;
+    const ctx = cvs.getContext('2d');
+    ctx.clearRect(0,0,W,H);
+    ctx.textAlign='center';
+
+    const gts = g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g]||0.25);
+    const ranks = ['D','C','B','A'];
+    // グリッド
+    for (let j=1; j<=4; j++) {
+        ctx.beginPath();
+        ctx.strokeStyle = j===3?'rgba(255,204,0,0.4)':'#1a1a1a';
+        ctx.lineWidth = j===3?1.5:1;
+        for (let i=0; i<N; i++) {
+            const a=(2*Math.PI/N)*i-Math.PI/2;
+            const x=cx+(r*j/4)*Math.cos(a), y=cy+(r*j/4)*Math.sin(a);
+            i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+        }
+        ctx.closePath(); ctx.stroke();
+    }
+    // 軸線
+    for (let i=0; i<N; i++) {
+        const a=(2*Math.PI/N)*i-Math.PI/2;
+        ctx.beginPath(); ctx.strokeStyle='#1a1a1a'; ctx.lineWidth=1;
+        ctx.moveTo(cx,cy); ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a)); ctx.stroke();
+    }
+    // データポリゴン
+    const scores = axes.map(ax=>gts(ax.grade));
+    ctx.fillStyle='rgba(255,204,0,0.15)'; ctx.strokeStyle='rgba(255,204,0,0.8)'; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    scores.forEach((s,i)=>{
+        const a=(2*Math.PI/N)*i-Math.PI/2;
+        const x=cx+r*s*Math.cos(a), y=cy+r*s*Math.sin(a);
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // ラベル & バッジ
+    const labelR = r + (r < 130 ? 28 : 38);
+    const dotR = r < 130 ? 7 : 10;
+    axes.forEach(({label,grade},i)=>{
+        const a=(2*Math.PI/N)*i-Math.PI/2;
+        const lx=cx+labelR*Math.cos(a), ly=cy+labelR*Math.sin(a);
+        ctx.fillStyle='#aaa'; ctx.font=`bold ${r<130?9:11}px 'Barlow Condensed',sans-serif`;
+        ctx.fillText(label,lx,ly);
+        const s=gts(grade);
+        const gx=cx+r*s*Math.cos(a), gy=cy+r*s*Math.sin(a);
+        const col=grade==='A'?'#32d74b':grade==='B'?'#ffcc00':grade==='C'?'#ff9500':'#ff3b30';
+        ctx.beginPath(); ctx.fillStyle=col; ctx.arc(gx,gy,dotR,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#000'; ctx.font=`bold ${r<130?8:10}px 'Share Tech Mono',monospace`;
+        ctx.fillText(grade,gx,gy+dotR*0.4);
+    });
+}
+
+// Combat SimへのAssessment受け渡し
+function openCombatSimFromAssessment(shooter) {
+    switchTab('compare');
+    // 少し待ってから選択
+    setTimeout(() => {
+        const sel = document.getElementById('sim-session-select');
+        if (!sel) return;
+        // assessment結果を仮想エントリとしてセレクタに追加
+        const opt = document.querySelector('#sim-session-select option[value="__assess__"]');
+        if (!opt) {
+            const o = document.createElement('option');
+            o.value = '__assess__';
+            o.textContent = `[総合] ${shooter}`;
+            sel.insertBefore(o, sel.options[1]);
+        }
+        sel.value = '__assess__';
+    }, 200);
+}
+
+/* ═══════════════════════════════════════════
+   SESSION HISTORY (新機能)
+═══════════════════════════════════════════ */
+function saveSession() {
+    const sessions = getSessions();
+    const session = {
+        id: Date.now(),
+        shooter: document.getElementById('cfg-shooter').value,
+        range: getRangeString(),
+        rangeArr: getRangeArray(),
+        preset: currentPreset,
+        scenarioType: finalStats ? finalStats.scenarioType : 'custom',
+        timestamp: new Date().toLocaleString('ja-JP'),
+        shotTimes: [...shotTimes],
+        stats: JSON.parse(JSON.stringify(finalStats)),
+        groupings: [...individualGroupings],
+        hits: cumulativeHits
+    };
+    sessions.unshift(session);
+    if (sessions.length > 20) sessions.splice(20);
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    alert('セッションを保存しました');
+}
+
+function getSessions() {
+    try { return JSON.parse(localStorage.getItem('mali_sessions') || '[]'); } catch { return []; }
+}
+
+/* ═══════════════════════════════════════════
+   TREND GRAPH
+═══════════════════════════════════════════ */
+let currentTrendMetric = 'first';
+let currentTrendRange  = null; // 選択中の射距離構成文字列
+
+function setTrendMetric(metric) {
+    currentTrendMetric = metric;
+    ['first','split','group','hits'].forEach(m => {
+        const btn = document.getElementById('trend-btn-' + m);
+        if (btn) btn.classList.toggle('active', m === metric);
+    });
+    drawTrendGraph();
+}
+
+function setTrendRange(range) {
+    currentTrendRange = range;
+    // フィルタボタンのactive切り替え
+    document.querySelectorAll('#trend-range-filter button').forEach(b => {
+        b.classList.toggle('active', b.dataset.range === range);
+    });
+    drawTrendGraph();
+}
+
+function buildRangeFilter() {
+    const sessions = getSessions();
+    const filterEl = document.getElementById('trend-range-filter');
+    if (!filterEl) return;
+
+    // 射距離構成ごとにカウント
+    const counts = {};
+    sessions.forEach(s => {
+        const r = s.range || '?';
+        counts[r] = (counts[r] || 0) + 1;
+    });
+
+    const ranges = Object.keys(counts);
+    if (ranges.length === 0) { filterEl.innerHTML = ''; return; }
+
+    // デフォルト: 最多セッション数の構成を選択
+    if (!currentTrendRange || !counts[currentTrendRange]) {
+        currentTrendRange = ranges.reduce((a, b) => counts[a] >= counts[b] ? a : b);
+    }
+
+    filterEl.innerHTML = ranges.map(r => `
+        <button class="preset-btn ${r === currentTrendRange ? 'active' : ''}"
+            style="flex:none; padding:3px 8px; font-size:0.65rem;"
+            data-range="${r}" onclick="setTrendRange('${r}')">
+            <span class="preset-name" style="font-size:0.65rem;">${r}m</span>
+            <span class="preset-desc" style="font-size:0.55rem;">${counts[r]}件</span>
+        </button>
+    `).join('');
+}
+
+// グレード境界計算（goal値を基準にA/B/C/D帯を返す）
+// lowerBetter=true: goal以下=A, goal*1.1以下=B, goal*1.3以下=C, それ以上=D
+// lowerBetter=false: goal以上=A, goal*0.9以上=B, goal*0.75以上=C, それ以下=D
+function getGradeBands(goal, lowerBetter) {
+    if (goal == null) return null;
+    if (lowerBetter) {
+        return [
+            { grade: 'A', color: '#32d74b', from: 0,           to: goal         },
+            { grade: 'B', color: '#ffcc00', from: goal,         to: goal * 1.15  },
+            { grade: 'C', color: '#ff9500', from: goal * 1.15,  to: goal * 1.35  },
+            { grade: 'D', color: '#ff3b30', from: goal * 1.35,  to: Infinity     },
+        ];
+    } else {
+        return [
+            { grade: 'A', color: '#32d74b', from: goal,         to: Infinity     },
+            { grade: 'B', color: '#ffcc00', from: goal * 0.85,  to: goal         },
+            { grade: 'C', color: '#ff9500', from: goal * 0.70,  to: goal * 0.85  },
+            { grade: 'D', color: '#ff3b30', from: 0,            to: goal * 0.70  },
+        ];
+    }
+}
+
+function drawTrendGraph() {
+    buildRangeFilter();
+    const cvs = document.getElementById('trendCanvas');
+    if (!cvs) return;
+    const emptyEl = document.getElementById('trend-empty');
+
+    const allSessions = getSessions();
+    // 射距離構成フィルタ
+    const sessions = currentTrendRange
+        ? allSessions.filter(s => (s.range || '?') === currentTrendRange)
+        : allSessions;
+
+    if (sessions.length < 1) {
+        cvs.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+    }
+    cvs.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width  = (cvs.offsetWidth  || 300) * dpr;
+    cvs.height = 180 * dpr;
+    cvs.style.height = '180px';
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = cvs.offsetWidth || 300, H = 180;
+    ctx.clearRect(0, 0, W, H);
+
+    // 指標設定
+    const metricCfg = {
+        first: { label: '初弾速度 (s)',  color: '#60a0ff',
+                 get:  s => s.stats?.speed?.first?.val,
+                 goal: s => s.stats?.speed?.first?.goal,
+                 unit: 's',  lowerBetter: true },
+        split: { label: '平均連射間隔 (s)', color: '#32d74b',
+                 get:  s => s.stats?.control?.split?.val,
+                 goal: s => s.stats?.control?.split?.goal,
+                 unit: 's',  lowerBetter: true },
+        group: { label: '散布界 (cm)',   color: '#ff9500',
+                 get:  s => s.stats?.accuracy?.group?.val,
+                 goal: s => s.stats?.accuracy?.group?.goal,
+                 unit: 'cm', lowerBetter: true },
+        hits:  { label: '命中率 (%)',    color: '#ff3b30',
+                 get:  s => s.hits != null && s.shotTimes?.length
+                            ? (s.hits / s.shotTimes.length * 100) : null,
+                 goal: s => s.stats?.accuracy?.hits?.goal != null && s.shotTimes?.length
+                            ? (s.stats.accuracy.hits.goal / s.shotTimes.length * 100) : null,
+                 unit: '%',  lowerBetter: false },
+    };
+    const cfg = metricCfg[currentTrendMetric];
+
+    // 古い順に並び替え
+    const ordered = [...sessions].reverse();
+    const values  = ordered.map(s => cfg.get(s));
+    const goals   = ordered.map(s => cfg.goal ? cfg.goal(s) : null);
+
+    const validVals  = values.filter(v => v != null && !isNaN(v));
+    const validGoals = goals.filter(v => v != null && !isNaN(v));
+    if (validVals.length < 1) return;
+
+    // スケール計算
+    const allNums = [...validVals, ...validGoals];
+    const rawMin = Math.min(...allNums);
+    const rawMax = Math.max(...allNums);
+    const margin = (rawMax - rawMin) * 0.25 || rawMax * 0.2 || 0.5;
+    const minV = Math.max(0, rawMin - margin);
+    const maxV = rawMax + margin;
+    const range = maxV - minV || 1;
+
+    const pad = { l: 44, r: 16, t: 16, b: 28 };
+    const gW = W - pad.l - pad.r;
+    const gH = H - pad.t - pad.b;
+    const n = ordered.length;
+    const toY = v => pad.t + gH * (1 - (v - minV) / range);
+    const toX = i => n > 1 ? pad.l + i * gW / (n - 1) : pad.l + gW / 2;
+
+    // ── グレード帯（背景色） ──
+    const refGoal = validGoals.length ? validGoals[validGoals.length - 1] : null;
+    const bands = getGradeBands(refGoal, cfg.lowerBetter);
+    if (bands) {
+        bands.forEach(band => {
+            const yTop    = toY(Math.min(band.to === Infinity ? maxV * 1.5 : band.to, maxV));
+            const yBottom = toY(Math.max(band.from, minV));
+            const bandH   = Math.max(0, yBottom - yTop);
+            ctx.fillStyle = band.color + '18';
+            ctx.fillRect(pad.l, yTop, gW, bandH);
+        });
+        // グレードラベル（右端）
+        bands.forEach(band => {
+            const bandMid = band.to === Infinity ? maxV : (band.from + Math.min(band.to, maxV)) / 2;
+            if (bandMid < minV || bandMid > maxV) return;
+            const ly = toY(bandMid);
+            ctx.fillStyle = band.color + 'aa';
+            ctx.font = 'bold 9px monospace'; ctx.textAlign = 'right';
+            ctx.fillText(band.grade, pad.l + gW - 2, ly + 3);
+        });
+    }
+
+    // ── グリッド線 ──
+    ctx.strokeStyle = '#1c1c1c'; ctx.lineWidth = 1;
+    for (let f = 0; f <= 4; f++) {
+        const y = pad.t + gH * f / 4;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + gW, y); ctx.stroke();
+        const labelV = maxV - (range * f / 4);
+        ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(labelV.toFixed(cfg.unit === 's' ? 2 : (cfg.unit === '%' ? 0 : 1)), pad.l - 4, y + 3);
+    }
+
+    // ── 目標ライン ──
+    if (refGoal != null) {
+        const gy = toY(refGoal);
+        if (gy >= pad.t && gy <= pad.t + gH) {
+            ctx.strokeStyle = 'rgba(255,204,0,0.55)'; ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(pad.l + gW, gy); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255,204,0,0.8)'; ctx.font = '8px monospace'; ctx.textAlign = 'left';
+            ctx.fillText('GOAL', pad.l + 3, gy - 3);
+        }
+    }
+
+    // ── グラデーション塗り ──
+    const fillPts = [];
+    ordered.forEach((s, i) => {
+        const v = values[i];
+        if (v == null || isNaN(v)) return;
+        fillPts.push({ x: toX(i), y: toY(v) });
+    });
+    if (fillPts.length > 1) {
+        const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + gH);
+        grad.addColorStop(0, cfg.color + '40');
+        grad.addColorStop(1, cfg.color + '05');
+        ctx.beginPath();
+        ctx.moveTo(fillPts[0].x, pad.t + gH);
+        fillPts.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(fillPts[fillPts.length - 1].x, pad.t + gH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+
+    // ── 折れ線 ──
+    ctx.save();
+    ctx.shadowColor = cfg.color; ctx.shadowBlur = 8;
+    ctx.strokeStyle = cfg.color; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let lineStarted = false;
+    ordered.forEach((s, i) => {
+        const v = values[i];
+        if (v == null || isNaN(v)) return;
+        const x = toX(i), y = toY(v);
+        lineStarted ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        lineStarted = true;
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    // ── データ点 ──
+    ordered.forEach((s, i) => {
+        const v = values[i];
+        if (v == null || isNaN(v)) return;
+        const x = toX(i), y = toY(v);
+        const goal = goals[i];
+        const isGood = goal != null
+            ? (cfg.lowerBetter ? v <= goal * 1.15 : v >= goal * 0.85)
+            : true;
+
+        // 外枠
+        ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#000'; ctx.fill();
+        // 内側
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = isGood ? '#32d74b' : '#ff3b30'; ctx.fill();
+
+        // 値ラベル（上下交互）
+        const lY = i % 2 === 0 ? y - 9 : y + 17;
+        ctx.fillStyle = '#bbb'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(
+            v.toFixed(cfg.unit === 'cm' ? 1 : (cfg.unit === '%' ? 0 : 2)) + cfg.unit,
+            x, lY
+        );
+    });
+
+    // ── X軸ラベル（日付） ──
+    ordered.forEach((s, i) => {
+        const x = toX(i);
+        const label = s.timestamp ? s.timestamp.slice(5, 10) : '#' + (i + 1);
+        ctx.fillStyle = '#555'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(label, x, H - 5);
+    });
+
+    // ── グラフタイトル ──
+    ctx.fillStyle = cfg.color; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(cfg.label, pad.l, 11);
+}
+// シナリオラベルマップ
+const SCENARIO_LABELS = {
+    posture:       '至近（姿勢変換）',
+    suppress_day:  '制圧致命（昼間）',
+    suppress_night:'制圧致命（夜間）',
+    custom:        'カスタム',
+};
+
+function renderHistory() {
+    const sessions = getSessions();
+    const el = document.getElementById('history-list');
+    if (!sessions.length) {
+        el.innerHTML = '<div class="history-empty">NO SESSIONS SAVED<br><span style="font-size:0.65rem;">セッション完了後に「セッション保存」を押してください</span></div>';
+        renderIntegratedEval(sessions);
+        return;
+    }
+
+    el.innerHTML = sessions.map(s => {
+        const stype = s.scenarioType || 'custom';
+        const slabel = SCENARIO_LABELS[stype] || stype;
+
+        // シナリオ別に表示するグレードを選択
+        const gradeItems = getSessionGradeItems(s);
+
+        const statsLine = [
+            s.stats?.speed?.split?.val != null ? `間隔: ${s.stats.speed.split.val.toFixed(2)}s` :
+            s.stats?.speed?.first?.val  != null ? `初弾: ${s.stats.speed.first.val.toFixed(2)}s` : null,
+            s.stats?.accuracy?.group?.val != null ? `散布: ${s.stats.accuracy.group.val.toFixed(1)}cm` : null,
+            `命中: ${s.hits}発`,
+        ].filter(Boolean).join(' | ');
+
+        return `
+        <div class="history-card" id="hcard-${s.id}">
+            <div class="history-card-header">
+                <div style="display:flex; align-items:flex-start; gap:8px;">
+                    <input type="checkbox" id="hchk-${s.id}" onchange="onHistoryCheckChange()"
+                        style="margin-top:3px; width:16px; height:16px; cursor:pointer; accent-color:var(--primary);">
+                    <div>
+                        <div class="history-card-id">${s.shooter}</div>
+                        <div style="font-size:0.65rem; color:#555; margin-top:1px; font-family:monospace;">${slabel}</div>
+                        <div style="font-size:0.6rem; color:#444; margin-top:2px;">${s.range}m · ${s.shotTimes.length}発 · ${s.timestamp}</div>
+                    </div>
+                </div>
+                <div class="history-grades">
+                    ${gradeItems.map(([l,g]) => `
+                    <div class="history-grade-item">
+                        <div class="grade-badge grade-${g||'D'}" style="width:24px;height:24px;">${g||'?'}</div>
+                        <div class="history-grade-label">${l}</div>
+                    </div>`).join('')}
+                </div>
+            </div>
+            <div style="font-size:0.7rem; color:#555; font-family:monospace;">${statsLine}</div>
+            <div class="history-actions">
+                <button class="btn-secondary" onclick="exportSessionCSV(${s.id})" style="font-size:0.72rem;">CSV</button>
+                <button class="btn-secondary btn-danger" onclick="deleteSession(${s.id})">削除</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    renderIntegratedEval(sessions);
+}
+
+// セッションのシナリオ別グレード項目を返す
+function getSessionGradeItems(s) {
+    const stype = s.scenarioType || 'custom';
+    const items = [];
+    // 速度（全シナリオ）
+    const spdG = s.stats?.speed?.split?.grade || s.stats?.speed?.first?.grade;
+    if (spdG) items.push(['速度', spdG]);
+    // 精度（全シナリオ）
+    const accG = gradeAvg([s.stats?.accuracy?.hits?.grade, s.stats?.accuracy?.group?.grade]);
+    if (accG) items.push(['精度', accG]);
+    // 制御
+    if (stype === 'posture') {
+        const ctlG = s.stats?.control?.reload?.grade;
+        if (ctlG) items.push(['制御', ctlG]);
+    } else if (stype === 'suppress_day' || stype === 'suppress_night') {
+        const hsG = s.stats?.control?.headshot?.grade;
+        if (hsG) items.push(['制御', hsG]);
+    }
+    // 暴露（姿勢変換のみ）
+    if (stype === 'posture') {
+        const expG = s.stats?.exposure?.checkGrade;
+        if (expG) items.push(['暴露', expG]);
+    }
+    // 適応（夜間のみ）
+    if (stype === 'suppress_night') {
+        const adpG = s.stats?.adapt?.grade;
+        if (adpG) items.push(['適応', adpG]);
+    }
+    return items;
+}
+
+// グレード文字列配列の平均グレードを返す
+function gradeAvg(grades) {
+    const map = { 'A':4,'B':3,'C':2,'D':1 };
+    const valid = grades.filter(g => g && map[g]);
+    if (!valid.length) return null;
+    const avg = valid.reduce((a,g) => a + map[g], 0) / valid.length;
+    return avg >= 3.5 ? 'A' : avg >= 2.5 ? 'B' : avg >= 1.5 ? 'C' : 'D';
+}
+
+// ── 3射撃要領 総合評価 ──
+function renderIntegratedEval(sessions) {
+    const el = document.getElementById('integrated-eval-body');
+    if (!el) return;
+
+    // 射手IDごとにグループ化
+    const shooters = {};
+    sessions.forEach(s => {
+        const id = s.shooter;
+        if (!shooters[id]) shooters[id] = {};
+        const st = s.scenarioType;
+        // 同一射手の各シナリオで最新1件を使用
+        if (!shooters[id][st]) shooters[id][st] = s;
+    });
+
+    const rows = Object.entries(shooters).map(([shooter, byType]) => {
+        const posture      = byType['posture'];
+        const suppress_day = byType['suppress_day'];
+        const suppress_night = byType['suppress_night'];
+
+        if (!posture && !suppress_day && !suppress_night) return null;
+
+        // 各シナリオから評価軸のグレードスコアを収集（評価している軸のみ）
+        const allScores = [];
+        const gradeMap = { 'A':4,'B':3,'C':2,'D':1 };
+        const toScore = g => gradeMap[g] || null;
+
+        const pushIfExists = (g) => { const s = toScore(g); if(s) allScores.push(s); };
+
+        // 姿勢変換: 速度・精度・制御（弾倉交換）・暴露
+        if (posture) {
+            const p = posture.stats;
+            pushIfExists(p?.speed?.split?.grade || p?.speed?.first?.grade);
+            pushIfExists(gradeAvg([p?.accuracy?.hits?.grade, p?.accuracy?.group?.grade]));
+            pushIfExists(p?.control?.reload?.grade);
+            pushIfExists(p?.exposure?.checkGrade);
+        }
+        // 制圧致命（昼間）: 速度・精度・制御（頭部）
+        if (suppress_day) {
+            const d = suppress_day.stats;
+            pushIfExists(d?.speed?.split?.grade || d?.speed?.first?.grade);
+            pushIfExists(gradeAvg([d?.accuracy?.hits?.grade, d?.accuracy?.group?.grade]));
+            pushIfExists(d?.control?.headshot?.grade);
+        }
+        // 制圧致命（夜間）: 速度・精度・制御（頭部）・適応
+        if (suppress_night) {
+            const n = suppress_night.stats;
+            pushIfExists(n?.speed?.split?.grade || n?.speed?.first?.grade);
+            pushIfExists(gradeAvg([n?.accuracy?.hits?.grade, n?.accuracy?.group?.grade]));
+            pushIfExists(n?.control?.headshot?.grade);
+            pushIfExists(n?.adapt?.grade);
+        }
+
+        if (!allScores.length) return null;
+
+        const totalAvg = allScores.reduce((a,b)=>a+b,0) / allScores.length;
+        const overallGrade = totalAvg >= 3.5 ? 'A' : totalAvg >= 2.5 ? 'B' : totalAvg >= 1.5 ? 'C' : 'D';
+        const colMap = { A:'#32d74b', B:'#ffcc00', C:'#ff9500', D:'#ff3b30' };
+        const col = colMap[overallGrade];
+
+        const scenBadge = (s, label) => {
+            if (!s) return `<div style="text-align:center; color:#333; font-size:0.65rem;">${label}<br>—</div>`;
+            const items = getSessionGradeItems(s);
+            const g = gradeAvg(items.map(([,gr])=>gr)) || '?';
+            return `<div style="text-align:center;">
+                <div style="font-size:0.6rem; color:#555; margin-bottom:2px;">${label}</div>
+                <div class="grade-badge grade-${g}" style="width:28px;height:28px;margin:0 auto;font-size:0.85rem;">${g}</div>
+                <div style="font-size:0.55rem; color:#444; margin-top:2px;">${s.timestamp.slice(5,10)}</div>
+            </div>`;
+        };
+
+        return `
+        <div style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:6px; padding:12px; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <div style="font-size:0.9rem; font-weight:bold; color:#ccc; font-family:'Barlow Condensed',sans-serif; flex:1;">${shooter}</div>
+                <div style="text-align:center;">
+                    <div style="font-size:0.6rem; color:#555; letter-spacing:1px;">OVERALL</div>
+                    <div style="font-size:2rem; font-family:'Share Tech Mono',monospace; font-weight:bold; color:${col}; line-height:1;">${overallGrade}</div>
+                    <div style="font-size:0.6rem; color:#444;">${allScores.length}指標平均</div>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:6px;">
+                ${scenBadge(posture,       '至近(姿勢)')}
+                ${scenBadge(suppress_day,  '制圧(昼間)')}
+                ${scenBadge(suppress_night,'制圧(夜間)')}
+            </div>
+        </div>`;
+    }).filter(Boolean);
+
+    if (!rows.length) {
+        el.innerHTML = '<div style="color:#333; font-size:0.75rem; font-family:monospace; padding:16px 0; text-align:center;">3シナリオのセッションを保存してください</div>';
+    } else {
+        el.innerHTML = rows.join('');
+    }
+}
+
+function deleteSession(id) {
+    if (!confirm('このセッションを削除しますか？')) return;
+    const sessions = getSessions().filter(s => s.id !== id);
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    renderHistory();
+    renderCompareSelect();
+}
+
+/* ═══════════════════════════════════════════
+   COMPARE (新機能)
+═══════════════════════════════════════════ */
+let selectedForCompare = new Set();
+
+function renderCompareSelect() {
+    const sessions = getSessions();
+    const selArea = document.getElementById('compare-select-area');
+    const tblArea = document.getElementById('compare-table-area');
+    if (!sessions.length) {
+        selArea.innerHTML = '<div style="color:#555;font-size:0.8rem;padding:20px 0;">保存済みセッションがありません</div>';
+        tblArea.innerHTML = '';
+        return;
+    }
+    selArea.innerHTML = sessions.map(s => `
+        <div class="compare-item ${selectedForCompare.has(s.id)?'selected':''}" 
+             onclick="toggleCompare(${s.id})" data-id="${s.id}">
+            ${s.shooter}<br><span style="font-size:0.6rem;color:#666;">${s.timestamp.slice(0,10)}</span>
+        </div>
+    `).join('');
+    renderCompareTable();
+}
+
+function toggleCompare(id) {
+    if (selectedForCompare.has(id)) selectedForCompare.delete(id);
+    else { if (selectedForCompare.size >= 4) { alert('最大4セッションまで比較可能'); return; } selectedForCompare.add(id); }
+    renderCompareSelect();
+}
+
+function renderCompareTable() {
+    const tbl = document.getElementById('compare-table-area');
+    if (selectedForCompare.size < 2) {
+        tbl.innerHTML = '<div style="color:#555;font-size:0.75rem;padding:12px 0;">2つ以上選択してください</div>';
+        return;
+    }
+    const sessions = getSessions().filter(s => selectedForCompare.has(s.id));
+    const rows = [
+        ['初弾 (s)', s => s.stats.speed?.first?.val, true],
+        ['平均間隔 (s)', s => s.stats.control?.split?.val, true],
+        ['散布界 (cm)', s => s.stats.accuracy?.group?.val, true],
+        ['命中数', s => s.hits, false],
+        ['総暴露 (s)', s => s.stats.exposure?.total?.val, true],
+        ['発射数', s => s.shotTimes?.length, false],
+    ];
+    const header = `<tr><th>指標</th>${sessions.map(s=>`<th>${s.shooter}<br><span style="font-weight:400">${s.timestamp.slice(5,10)}</span></th>`).join('')}</tr>`;
+    const body = rows.map(([label, fn, lowerBetter]) => {
+        const vals = sessions.map(s => fn(s));
+        const best = lowerBetter ? Math.min(...vals.filter(Boolean)) : Math.max(...vals.filter(Boolean));
+        const cells = vals.map(v => {
+            const isBest = v !== undefined && (lowerBetter ? v <= best : v >= best);
+            return `<td class="${isBest?'compare-best':''}">${v !== undefined ? (typeof v === 'number' ? v.toFixed(2) : v) : '--'}</td>`;
+        }).join('');
+        return `<tr><td>${label}</td>${cells}</tr>`;
+    }).join('');
+    tbl.innerHTML = `<table class="compare-table"><thead>${header}</thead><tbody>${body}</tbody></table>`;
+}
+
+/* ═══════════════════════════════════════════
+   COMBAT SIMULATION  (5指標・シナリオ自動判定)
+═══════════════════════════════════════════ */
+
+// 仮想敵定義: 5指標すべてを設定（評価しない指標はシミュレーション対象外）
+// speed: 射撃間隔(s)低い方が良, accuracy: 命中率0-1高い方が良,
+// control: 0-1(1=満点), exposure: 0-1(1=暴露なし), adapt: 0-1(1=劣化なし)
+const ENEMY_PRESETS = {
+    guerrilla: {
+        label: '軽武装ゲリラ', desc: '基礎訓練あり・非正規兵', color: '#ff9500',
+        speed:    { mean: 1.20, sd: 0.30 },  // 射撃間隔(s) 低いと強い
+        accuracy: { mean: 0.55, sd: 0.15 },  // 命中率
+        control:  { mean: 0.50, sd: 0.20 },  // 制御(0-1)
+        exposure: { mean: 0.60, sd: 0.20 },  // 暴露管理(0-1)
+        adapt:    { mean: 0.65, sd: 0.15 },  // 適応(昼夜維持率 0-1)
+    },
+    regular: {
+        label: '正規部隊（標準）', desc: '正規軍・標準的な訓練を受けた兵士', color: '#ffcc00',
+        speed:    { mean: 0.80, sd: 0.20 },
+        accuracy: { mean: 0.72, sd: 0.10 },
+        control:  { mean: 0.70, sd: 0.15 },
+        exposure: { mean: 0.75, sd: 0.12 },
+        adapt:    { mean: 0.75, sd: 0.12 },
+    },
+    elite: {
+        label: 'エリート部隊', desc: '特殊部隊レベル・高度な訓練', color: '#ff3b30',
+        speed:    { mean: 0.45, sd: 0.10 },
+        accuracy: { mean: 0.90, sd: 0.05 },
+        control:  { mean: 0.90, sd: 0.08 },
+        exposure: { mean: 0.92, sd: 0.06 },
+        adapt:    { mean: 0.88, sd: 0.08 },
+    },
+};
+
+let currentEnemy = 'guerrilla';
+
+function randNormal(mean, sd) {
+    let u, v;
+    do { u = Math.random(); } while (u === 0);
+    do { v = Math.random(); } while (v === 0);
+    return mean + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function setEnemy(key) {
+    currentEnemy = key;
+    ['guerrilla','regular','elite'].forEach(k =>
+        document.getElementById('enemy-btn-' + k).classList.toggle('active', k === key));
+    updateEnemyStatsDisplay();
+}
+
+function updateEnemyStatsDisplay() {
+    const e = ENEMY_PRESETS[currentEnemy];
+    const el = document.getElementById('enemy-stats-display');
+    if (!el || !e) return;
+    el.innerHTML = `<span style="color:#888;">${e.label}</span> — ${e.desc}<br>` +
+        `速度(間隔): <strong style="color:#ddd;">${e.speed.mean.toFixed(2)}s</strong> ±${e.speed.sd.toFixed(2)}　` +
+        `精度(命中率): <strong style="color:#ddd;">${Math.round(e.accuracy.mean*100)}%</strong> ±${Math.round(e.accuracy.sd*100)}%<br>` +
+        `制御: <strong style="color:#ddd;">${Math.round(e.control.mean*100)}%</strong> ±${Math.round(e.control.sd*100)}%　` +
+        `暴露管理: <strong style="color:#ddd;">${Math.round(e.exposure.mean*100)}%</strong> ±${Math.round(e.exposure.sd*100)}%　` +
+        `適応: <strong style="color:#ddd;">${Math.round(e.adapt.mean*100)}%</strong> ±${Math.round(e.adapt.sd*100)}%`;
+}
+
+// セッション/Assessment から「使える指標」を0-1スケールで抽出
+function extractSimMetrics(sessionId) {
+    // Assessment総合結果の場合
+    if (sessionId === '__assess__' && window._assessResult) {
+        const ar = window._assessResult;
+        const metrics = {};
+        const gToRate = g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g]);
+        // 各シナリオの速度・精度を平均
+        const speedGrades = [ar.scP?.speed, ar.scD?.speed, ar.scN?.speed].filter(Boolean);
+        const accGrades   = [ar.scP?.accuracy, ar.scD?.accuracy, ar.scN?.accuracy].filter(Boolean);
+        if (speedGrades.length) metrics.speed    = speedGrades.map(gToRate).reduce((a,b)=>a+b)/speedGrades.length;
+        if (accGrades.length)   metrics.accuracy = accGrades.map(gToRate).reduce((a,b)=>a+b)/accGrades.length;
+        // 制御
+        const ctlGrades = [ar.scP?.control, ar.scD?.control, ar.scN?.control].filter(Boolean);
+        if (ctlGrades.length) metrics.control = ctlGrades.map(gToRate).reduce((a,b)=>a+b)/ctlGrades.length;
+        // 暴露（姿勢変換のみ）
+        if (ar.scP?.exposure) metrics.exposure = gToRate(ar.scP.exposure);
+        // 適応（夜間のみ）
+        if (ar.scN?.adapt || ar.adaptDetail?.grade) {
+            metrics.adapt = gToRate(ar.scN?.adapt || ar.adaptDetail?.grade);
+        }
+        return { metrics, label: `[総合] ${ar.shooter}`, sd: 0.10 };
+    }
+
+    // 通常セッション
+    const session = getSessions().find(s => s.id === parseInt(sessionId));
+    if (!session) return null;
+    const st = session.scenarioType || 'custom';
+    const stats = session.stats;
+    const metrics = {};
+    const gToRate = g => ({ 'A':1.0,'B':0.75,'C':0.5,'D':0.25 }[g]);
+
+    // 速度: 射撃間隔を正規化（目標間隔に対する達成率 → 0-1）
+    const splitG = stats?.speed?.split?.grade || stats?.speed?.first?.grade;
+    if (splitG) metrics.speed = gToRate(splitG);
+
+    // 精度: 命中数・散布界の平均
+    const accG = avgGradeOf([stats?.accuracy?.hits?.grade, stats?.accuracy?.group?.grade]);
+    if (accG) metrics.accuracy = gToRate(accG);
+
+    // 制御: シナリオ依存
+    if (st === 'posture' && stats?.control?.reload?.grade)
+        metrics.control = gToRate(stats.control.reload.grade);
+    else if ((st === 'suppress_day'||st === 'suppress_night') && stats?.control?.headshot?.grade)
+        metrics.control = gToRate(stats.control.headshot.grade);
+
+    // 暴露: 姿勢変換のみ
+    if (st === 'posture' && stats?.exposure?.checkGrade)
+        metrics.exposure = gToRate(stats.exposure.checkGrade);
+
+    // 適応: 夜間のみ
+    if (st === 'suppress_night' && stats?.adapt?.grade)
+        metrics.adapt = gToRate(stats.adapt.grade);
+
+    const stype_label = { posture:'至近(姿勢)', suppress_day:'制圧(昼間)', suppress_night:'制圧(夜間)', custom:'カスタム' }[st]||st;
+    return { metrics, label: `${session.shooter}  ${stype_label}  ${session.timestamp.slice(5,10)}`, sd: 0.12 };
+}
+
+function populateSimSessionSelect() {
+    const sel = document.getElementById('sim-session-select');
+    if (!sel) return;
+    const sessions = getSessions();
+    const STYPE = { posture:'至近', suppress_day:'制圧昼', suppress_night:'制圧夜', custom:'カスタム' };
+
+    // Assessment エントリ
+    const assessOpts = window._assessResult
+        ? `<option value="__assess__">[総合] ${window._assessResult.shooter}</option>`
+        : '';
+
+    sel.innerHTML = '<option value="">-- セッション / 総合評価を選択 --</option>' +
+        assessOpts +
+        sessions.map(s =>
+            `<option value="${s.id}">${s.shooter}  ${STYPE[s.scenarioType]||''}  ${s.timestamp.slice(5,10)}  命中:${s.hits||0}発</option>`
+        ).join('');
+}
+
+function onSimSessionChange() {
+    const sel = document.getElementById('sim-session-select');
+    const val = sel?.value;
+    if (!val) return;
+    const result = extractSimMetrics(val);
+    const infoEl = document.getElementById('sim-selected-metrics');
+    if (!result || !infoEl) return;
+    const keys = Object.keys(result.metrics);
+    const names = { speed:'速度', accuracy:'精度', control:'制御', exposure:'暴露', adapt:'適応' };
+    infoEl.textContent = '使用指標: ' + keys.map(k=>names[k]||k).join(' · ');
+}
+
+function runCombatSim() {
+    const selEl = document.getElementById('sim-session-select');
+    const val = selEl?.value;
+    if (!val) { alert('自分のデータを選択してください。'); return; }
+
+    const myData = extractSimMetrics(val);
+    if (!myData || !Object.keys(myData.metrics).length) {
+        alert('指標データが取得できません。セッションを保存してください。');
+        return;
+    }
+
+    const enemy = ENEMY_PRESETS[currentEnemy];
+    const TRIALS = 1000;
+    const metricKeys = Object.keys(myData.metrics);
+    // speed は低いほど良い（逆転）
+    const isHigherBetter = k => k !== 'speed';
+
+    let wins = 0, losses = 0, draws = 0;
+
+    for (let t = 0; t < TRIALS; t++) {
+        let myTotal = 0, eTotal = 0, count = 0;
+
+        metricKeys.forEach(k => {
+            const myVal = clamp(randNormal(myData.metrics[k], myData.sd), 0.05, 1);
+            const eVal  = clamp(randNormal(enemy[k].mean, enemy[k].sd), 0.05, 1);
+            // 速度は低い方が良いため、enemy.speedは「間隔」として myVal を逆転して評価
+            const myNorm = isHigherBetter(k) ? myVal : (1 - myVal);
+            const eNorm  = isHigherBetter(k) ? eVal  :
+                // 敵のspeedは間隔(s)で格納されていないので、grade換算値(0-1)として直接使う
+                (1 - eVal);
+            myTotal += myNorm;
+            eTotal  += eNorm;
+            count++;
+        });
+
+        const diff = myTotal - eTotal;
+        if (diff > 0.01 * count)       wins++;
+        else if (diff < -0.01 * count) losses++;
+        else                           draws++;
+    }
+
+    const winPct  = (wins  / TRIALS * 100).toFixed(1);
+    const lossPct = (losses / TRIALS * 100).toFixed(1);
+
+    displaySimResult({ winPct, lossPct, wins, losses, draws, TRIALS, enemy, myData, metricKeys });
+}
+
+function displaySimResult(r) {
+    const el = document.getElementById('sim-result');
+    el.style.display = 'block';
+    const winN = parseFloat(r.winPct);
+
+    const pctEl = document.getElementById('sim-win-pct');
+    pctEl.textContent = r.winPct + '%';
+    pctEl.style.color = winN>=70?'#32d74b':winN>=50?'#ffcc00':winN>=30?'#ff9500':'#ff3b30';
+
+    const verdicts = [[80,'DOMINANT  圧倒的優位'],[65,'FAVORABLE  有利'],
+                      [50,'CONTESTED  拮抗'],[35,'DISADVANTAGED  不利'],[0,'CRITICAL  危険域']];
+    const v = verdicts.find(([t]) => winN >= t);
+    const vEl = document.getElementById('sim-verdict');
+    vEl.textContent = v ? v[1] : '';
+    vEl.style.color = pctEl.style.color;
+
+    document.getElementById('sim-gauge-you').style.width   = r.winPct  + '%';
+    document.getElementById('sim-gauge-enemy').style.width = r.lossPct + '%';
+
+    const names = { speed:'速度(間隔)', accuracy:'精度(命中率)', control:'制御', exposure:'暴露管理', adapt:'適応' };
+    const isHB  = k => k !== 'speed';
+    const rows  = r.metricKeys.map(k => {
+        const myV = r.myData.metrics[k];
+        const eV  = r.enemy[k].mean;
+        const good = isHB(k) ? myV >= eV : myV <= eV;
+        return `<tr>
+            <td style="color:#555;padding:4px 0;">${names[k]||k}</td>
+            <td style="text-align:right;padding:4px 6px;color:${good?'#32d74b':'#ff3b30'};font-family:monospace;">
+                ${isHB(k) ? Math.round(myV*100)+'%' : myV.toFixed(2)}</td>
+            <td style="text-align:center;color:#333;font-size:0.7rem;">vs</td>
+            <td style="text-align:left;padding:4px 6px;color:${!good?'#32d74b':'#ff3b30'};font-family:monospace;">
+                ${isHB(k) ? Math.round(eV*100)+'%' : eV.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('sim-metrics-table').innerHTML =
+        `<table style="width:100%;border-collapse:collapse;font-size:0.72rem;">
+        <tr><th style="color:#444;font-size:0.6rem;padding:4px 0;text-align:left;">指標</th>
+        <th style="color:#0099ff;font-size:0.6rem;padding:4px 6px;text-align:right;">YOU</th>
+        <th></th>
+        <th style="color:${r.enemy.color};font-size:0.6rem;padding:4px 6px;text-align:left;">${r.enemy.label}</th></tr>
+        ${rows}</table>`;
+
+    document.getElementById('sim-footer').textContent =
+        `n=${r.TRIALS}  WIN:${r.wins}  LOSS:${r.losses}  DRAW:${r.draws}  使用指標:${r.metricKeys.length}`;
+}
+
+function initCompareTab() {
+    populateSimSessionSelect();
+    updateEnemyStatsDisplay();
+}
+
+/* ═══════════════════════════════════════════
+   CSV EXPORT
+═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   波形レビュー & 手動ショット補正
+═══════════════════════════════════════════ */
+
+const WAVE_PX_PER_SEC = 120;   // 表示解像度: 1秒=120px
+
+function openWaveformReview() {
+    const area = document.getElementById('waveform-review-area');
+    area.style.display = 'block';
+    area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    renderWaveReview();
+}
+
+function renderWaveReview() {
+    renderReviewShotList();
+    drawWaveReviewCanvas();
+}
+
+// ── ショットタイムリスト表示 ──
+function renderReviewShotList() {
+    const el = document.getElementById('review-shot-list');
+    if (!reviewShotTimes.length) {
+        el.innerHTML = '<span style="color:#333; font-size:0.72rem;">発射タイムなし</span>';
+        return;
+    }
+    el.innerHTML = reviewShotTimes.map((t, i) =>
+        `<span onclick="removeReviewShot(${i})"
+            style="background:#1a1a1a; border:1px solid #333; color:#ffcc00;
+                   padding:4px 8px; border-radius:4px; font-family:monospace;
+                   font-size:0.72rem; cursor:pointer; user-select:none;"
+            title="タップで削除">
+            #${i+1} ${t.toFixed(2)}s
+        </span>`
+    ).join('');
+}
+
+function removeReviewShot(idx) {
+    reviewShotTimes.splice(idx, 1);
+    renderWaveReview();
+}
+
+// ── 波形キャンバス描画 ──
+function drawWaveReviewCanvas() {
+    const cvs = document.getElementById('waveReviewCanvas');
+    if (!cvs || !waveBuffer.length) return;
+
+    const totalSec = waveBuffer[waveBuffer.length - 1].t + 0.5;
+    const W = Math.max(400, Math.ceil(totalSec * WAVE_PX_PER_SEC));
+    const H = 120;
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width  = W * dpr;
+    cvs.height = H * dpr;
+    cvs.style.width  = W + 'px';
+    cvs.style.height = H + 'px';
+
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    // 背景グリッド（1秒ごと）
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+    for (let s = 0; s <= totalSec; s++) {
+        const x = s * WAVE_PX_PER_SEC;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        ctx.fillStyle = '#333'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+        ctx.fillText(s + 's', x + 2, 10);
+    }
+
+    // 波形（RMS）
+    ctx.beginPath(); ctx.strokeStyle = '#336655'; ctx.lineWidth = 1;
+    waveBuffer.forEach(({ t, rms }, i) => {
+        const x = t * WAVE_PX_PER_SEC;
+        const y = H - rms * H;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // 閾値ライン
+    const th = parseFloat(document.getElementById('mic-sens').value);
+    ctx.strokeStyle = 'rgba(255,100,50,0.5)'; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    const thY = H - th * H;
+    ctx.beginPath(); ctx.moveTo(0, thY); ctx.lineTo(W, thY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 発射マーカー
+    reviewShotTimes.forEach((t, i) => {
+        const x = t * WAVE_PX_PER_SEC;
+        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('#' + (i+1), x, H - 4);
+    });
+
+    // タッチ/クリックイベント（一度だけ登録）
+    if (!cvs._waveListenerAttached) {
+        cvs._waveListenerAttached = true;
+        const hitRadius = 8;
+
+        const getTimeFromEvent = (e) => {
+            const rect = cvs.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const xPx = clientX - rect.left;
+            return xPx / WAVE_PX_PER_SEC;
+        };
+
         cvs.addEventListener('click', (e) => {
             const t = getTimeFromEvent(e);
             if (t < 0 || t > totalSec) return;
