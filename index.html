@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver65 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver55 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -211,7 +211,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver65</h1>
+    <h1 class="app-title-main">MaLI ver55</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -275,20 +275,9 @@
         <input type="range" id="mic-sens" min="0.10" max="0.99" step="0.01" value="0.30" 
                oninput="document.getElementById('sens-val').innerText=this.value" style="width:100%;">
         <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
-            <label style="margin:0; white-space:nowrap;">不感時間:</label>
-            <div style="display:flex; gap:6px;">
-                <button id="dt-btn-real" onclick="setDeadTime('real')"
-                    style="background:#1a1400; border:1px solid #ffcc00; color:#ffcc00; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer; font-weight:bold;">
-                    実銃 0.10s [選択中]
-                </button>
-                <button id="dt-btn-gas" onclick="setDeadTime('gas')"
-                    style="background:#111; border:1px solid #444; color:#888; padding:4px 10px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
-                    ガスBB 0.20s
-                </button>
-            </div>
-            <span style="font-size:0.62rem; color:#555; flex-basis:100%;">
-                実銃: 反響音二重検知防止（0.10s） / ガスBB: ブローバック2重カウント防止（0.20s）
-            </span>
+            <label style="margin:0; white-space:nowrap; font-size:0.7rem;">不感時間:</label>
+            <span style="font-size:0.8rem; color:#ffcc00; font-family:monospace; font-weight:bold;">0.10s</span>
+            <span style="font-size:0.62rem; color:#555;">反響音二重検知防止</span>
         </div>
         <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
             <label style="margin:0; white-space:nowrap; font-size:0.7rem;">リロード不感時間: <span id="reload-dead-val">2.0</span>s</label>
@@ -304,7 +293,7 @@
     <div class="shot-log" id="shot-log"></div>
     <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
         <label style="font-size:0.68rem; color:#666; display:flex; align-items:center; gap:6px; cursor:pointer;">
-            <input type="checkbox" id="chk-auto-finish" checked
+            <input type="checkbox" id="chk-auto-finish"
                 style="width:14px; height:14px; accent-color:var(--primary); cursor:pointer;">
             発数到達で自動終了
         </label>
@@ -474,7 +463,10 @@
                 全解除
             </button>
             <button onclick="exportSelectedCSV()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#32d74b; color:#32d74b;">
-                選択したセッションをCSV出力
+                CSV出力
+            </button>
+            <button onclick="deleteSelectedSessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#ff3b30; color:#ff3b30;">
+                削除
             </button>
             <button onclick="document.getElementById('csv-import-input').click()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#0099ff; color:#0099ff;">
                 CSVからインポート
@@ -593,7 +585,7 @@ let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
 let cumulativeHits = 0, individualGroupings = [], finalStats = {};
 let animFrameId = null;
 let lastShotTime = -999;
-let currentDeadTime = 0.10; // デフォルト: 実銃（0.10s）。ガスBBは0.20s
+let currentDeadTime = 0.10; // 実銃固定（0.10s）
 
 // 波形録音バッファ（1000sps相当でRMSを蓄積）
 const WAVE_SPS = 200;          // 波形サンプリングレート（samples/s）
@@ -1185,17 +1177,7 @@ function confirmManualMarks() {
     generateAssessment();
 }
 
-function setDeadTime(mode) {
-    currentDeadTime = mode === 'real' ? 0.10 : 0.20;
-    document.getElementById('dt-btn-real').style.fontWeight = mode === 'real' ? 'bold' : 'normal';
-    document.getElementById('dt-btn-real').style.borderColor = mode === 'real' ? '#ffcc00' : '#444';
-    document.getElementById('dt-btn-real').style.color = mode === 'real' ? '#ffcc00' : '#888';
-    document.getElementById('dt-btn-real').textContent = mode === 'real' ? '実銃 0.10s [選択中]' : '実銃 0.10s';
-    document.getElementById('dt-btn-gas').style.fontWeight = mode === 'gas' ? 'bold' : 'normal';
-    document.getElementById('dt-btn-gas').style.borderColor = mode === 'gas' ? '#32d74b' : '#444';
-    document.getElementById('dt-btn-gas').style.color = mode === 'gas' ? '#32d74b' : '#888';
-    document.getElementById('dt-btn-gas').textContent = mode === 'gas' ? 'ガスBB 0.20s [選択中]' : 'ガスBB 0.20s';
-}
+// setDeadTime: 不感時間は実銃0.10s固定
 
 function setAnalysisMode(mode) {
     analysisMode = mode;
@@ -1893,9 +1875,23 @@ function renderAssessBody(sessions, shooter) {
     const el = document.getElementById('assess-body');
     const mine = sessions.filter(s => s.shooter === shooter);
 
-    // シナリオ別最新セッション
+    // ── 各シナリオの指標スコアを抽出（前方宣言済み）──
+    // シナリオ別最良成績を選択（評価済み指標の平均グレード点が最高のセッション）
+    function sessionScore(s) {
+        if (!s) return 0;
+        const sc = extractScores(s);
+        if (!sc) return 0;
+        const grades = [sc.speed, sc.accuracy, sc.control, sc.exposure, sc.adapt].filter(Boolean);
+        if (!grades.length) return 0;
+        return grades.map(g2s).filter(Boolean).reduce((a,b)=>a+b,0) / grades.length;
+    }
     const byType = {};
-    mine.forEach(s => { if (!byType[s.scenarioType]) byType[s.scenarioType] = s; });
+    mine.forEach(s => {
+        const st = s.scenarioType;
+        if (!byType[st] || sessionScore(s) > sessionScore(byType[st])) {
+            byType[st] = s;
+        }
+    });
     const P = byType['posture'];
     const D = byType['suppress_day'];
     const N = byType['suppress_night'];
@@ -3214,6 +3210,17 @@ function skipReviewAndConfirm() {
 }
 
 // ── History チェックボックス操作 ──
+function deleteSelectedSessions() {
+    const checked = [...document.querySelectorAll('#history-list input[type=checkbox]:checked')];
+    if (!checked.length) { alert('削除するセッションを選択してください。'); return; }
+    if (!confirm(`${checked.length}件のセッションを削除します。この操作は元に戻せません。`)) return;
+    const ids = new Set(checked.map(c => parseInt(c.id.replace('hchk-', ''))));
+    let sessions = getSessions().filter(s => !ids.has(s.id));
+    localStorage.setItem('mali_sessions', JSON.stringify(sessions));
+    renderHistory();
+    setTimeout(drawTrendGraph, 60);
+}
+
 function onHistoryCheckChange() {
     const checked = document.querySelectorAll('#history-list input[type=checkbox]:checked').length;
     const total   = document.querySelectorAll('#history-list input[type=checkbox]').length;
