@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver65 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver55 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -211,7 +211,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver65</h1>
+    <h1 class="app-title-main">MaLI ver55</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -358,7 +358,7 @@
     <div id="mode-panel-manual" style="display:block;">
         <div style="background:#0a0a14; border:1px solid #1a1a3a; border-radius:4px; padding:10px; margin-bottom:10px; font-size:0.7rem; color:#6a6aaa; line-height:1.7;">
             <strong style="color:#60a0ff;">タップ/クリックで弾痕を手動マーク</strong><br>
-            画像を拡大してピンポイントでタップ。青シール検出で下書きして修正もできます。<br>
+            画像を拡大してピンポイントでタップ。<br>
             <span style="color:#888;">ピンチ/ホイールで拡大縮小　ドラッグで移動　マークをタップで削除</span>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
@@ -366,10 +366,7 @@
                 マーク数: <strong id="manual-count" style="color:#60a0ff;">0</strong> / 
                 <strong id="manual-max" style="color:#888;">5</strong>発
             </div>
-            <button id="btn-blue-suggest" onclick="runBlueSuggest()" 
-                style="background:#0a1a3a; border:1px solid #2244aa; color:#60a0ff; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer; flex:1;">
-                青シール自動検出（下書き）
-            </button>
+
             <button onclick="clearAllManualMarks()"
                 style="background:#1a0a0a; border:1px solid #441111; color:#ff6060; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer;">
                 全消去
@@ -635,6 +632,7 @@ const PRESETS = {
         targetGrouping: 20, targetFirst: 1.0, targetSplit: 2.0,
         targetReload: 4.0, reloadAt: 7,
         defaultRanges: [25,25,25,25,25,25,25,25,25,25],
+        defaultTargetNums: [1,1,1,1,2,2,2,3,3,3],  // Shot#1-4=T1, #5-7=T2, #8-10=T3
         // シナリオ固有設定
         targetGroups: [
             { label: '目標1', shots: 4, goalHits: 2, goalGroup: 20 },
@@ -656,6 +654,7 @@ const PRESETS = {
         targetGrouping: 10, targetFirst: 1.0, targetSplit: 0.8,
         targetReload: 0, reloadAt: 0,
         defaultRanges: [10,10,10,10,10],
+        defaultTargetNums: [1,1,1,1,1],
         targetGroups: [
             { label: '目標1', shots: 5, goalHits: 3, goalGroup: 10 },
         ],
@@ -702,15 +701,17 @@ function applyPreset(key) {
     document.getElementById('cfg-target-split').value   = p.targetSplit;
     document.getElementById('cfg-target-reload').value  = p.targetReload || 0;
     document.getElementById('cfg-reload-at').value      = p.reloadAt || 0;
-    buildTargetRangeList(p.defaultRanges);
+    buildTargetRangeList(p.defaultRanges, p.defaultTargetNums || null);
+    updateManualMax();
 }
 
 function onShotCountChange() {
     buildTargetRangeList();
+    updateManualMax();
 }
 
 // リロード位置でターゲットをグループ分けして射距離リストを生成
-function buildTargetRangeList(defaults) {
+function buildTargetRangeList(defaults, defaultTargetNums) {
     const total    = parseInt(document.getElementById('cfg-total-shots').value) || 1;
     const reloadAt = parseInt(document.getElementById('cfg-reload-at').value) || 0;
     const list     = document.getElementById('target-range-list');
@@ -745,8 +746,18 @@ function buildTargetRangeList(defaults) {
             row.className = 'target-range-row';
             const globalIdx = shotIdx;
             const defVal = defaults ? (defaults[globalIdx] ?? 10) : (existing[globalIdx] ?? 10);
+            // デフォルトターゲット番号（1-based）
+            const defTgt = defaultTargetNums ? (defaultTargetNums[globalIdx] || 1) : 1;
+            const tOptions = [1,2,3,4,5].map(n =>
+                `<option value="${n}" ${n===defTgt?'selected':''}>${'T'+n}</option>`
+            ).join('');
             row.innerHTML = `
                 <span class="target-range-label">Shot #${globalIdx + 1}</span>
+                <select data-shot="${globalIdx}" class="shot-target-select"
+                    style="background:#1a1a1a; border:1px solid #333; color:#aaa; padding:3px 5px;
+                           border-radius:4px; font-size:0.68rem; font-family:monospace; width:44px;">
+                    ${tOptions}
+                </select>
                 <input type="number" min="1" max="9999" value="${defVal}" 
                        oninput="onRangeChange()" placeholder="距離">
                 <span class="target-range-unit">m</span>`;
@@ -754,6 +765,13 @@ function buildTargetRangeList(defaults) {
             shotIdx++;
         }
     });
+}
+
+// manual-maxを予定発射数で更新
+function updateManualMax() {
+    const total = parseInt(document.getElementById('cfg-total-shots').value) || 1;
+    const el = document.getElementById('manual-max');
+    if (el) el.textContent = total;
 }
 
 function onRangeChange() {
@@ -1098,52 +1116,29 @@ function clearAllManualMarks() {
     });
 }
 
-function runBlueSuggest() {
-    manualSessions.forEach(session => {
-        const cvs = session.wrapper.querySelector('canvas');
-        if (!cvs || !session.img) return;
-        const ctx = cvs.getContext('2d');
-        const w = session.drawW, h = session.drawH;
-        ctx.clearRect(0, 0, w, h);
-        ctx.drawImage(session.img, 0, 0, w, h);
-        const imageData = ctx.getImageData(0, 0, w, h);
-        const data = imageData.data;
-
-        const sensitivity = parseInt(document.getElementById('detect-sensitivity').value);
-        const minB     = [140,120,100,80,60][sensitivity-1];
-        const rRatio   = [2.0,1.7,1.4,1.2,1.0][sensitivity-1];
-        const gRatio   = [1.6,1.4,1.2,1.0,0.8][sensitivity-1];
-        const clusterR = [30,40,55,70,90][sensitivity-1];
-        const minCluster=[6,4,3,2,1][sensitivity-1];
-        const stride = Math.max(2, Math.floor(Math.sqrt(w*h)/600)) * 4;
-
-        let pts = [];
-        for (let i = 0; i < data.length; i += stride) {
-            const r = data[i], g = data[i+1], b = data[i+2];
-            if (b >= minB && b > r*rRatio && b > g*gRatio) pts.push({ x:(i>>2)%w, y:Math.floor((i>>2)/w) });
-        }
-        const r2 = clusterR * clusterR;
-        let clusters = [];
-        for (const p of pts) {
-            let found = false;
-            for (const c of clusters) {
-                const dx=c.x-p.x, dy=c.y-p.y;
-                if (dx*dx+dy*dy < r2) { c.x=(c.x*c.size+p.x)/(c.size+1); c.y=(c.y*c.size+p.y)/(c.size+1); c.size++; found=true; break; }
-            }
-            if (!found) clusters.push({ x:p.x, y:p.y, size:1 });
-        }
-        session.marks = clusters.filter(c => c.size >= minCluster).map(c => ({ x:c.x, y:c.y }));
-        session.zoom = 1; session.panX = 0; session.panY = 0;
-        renderManualCanvas(session, cvs);
-    });
-}
+// runBlueSuggest: 削除済み
 
 function confirmManualMarks() {
     if (manualSessions.length === 0) { alert('先に写真をアップロードしてください。'); return; }
     cumulativeHits = 0; individualGroupings = [];
+    // 使用されているターゲット番号の最大値を取得
+    const tSelects = document.querySelectorAll('.shot-target-select');
+    const numTargets = tSelects.length
+        ? Math.max(...Array.from(tSelects).map(s => parseInt(s.value) || 1))
+        : 1;
+    // ターゲット別に集計
+    const targetGroupings = {}; // tIdx -> [groupCm...]
+    const targetHits = {};      // tIdx -> count
 
     manualSessions.forEach(session => {
         const marks = session.marks;
+        // Shotインデックスに対応するセレクタからターゲット番号を取得
+        const allSelects = document.querySelectorAll('.shot-target-select');
+        const tIdxRaw = allSelects[session.targetIdx]
+            ? (parseInt(allSelects[session.targetIdx].value) - 1)
+            : (session.targetIdx % numTargets);
+        const tIdx  = tIdxRaw;
+        const tLabel = 'T' + (tIdx + 1);
         const targetH = parseFloat(document.getElementById('cfg-target-height').value);
         const cmPerPx = targetH / session.drawH;
         let maxD = 0;
@@ -1155,6 +1150,10 @@ function confirmManualMarks() {
         const groupCm = maxD * cmPerPx;
         cumulativeHits += marks.length;
         individualGroupings.push(groupCm);
+
+        if (!targetGroupings[tIdx]) targetGroupings[tIdx] = [];
+        targetGroupings[tIdx].push(groupCm);
+        targetHits[tIdx] = (targetHits[tIdx] || 0) + marks.length;
 
         const cvs = session.wrapper.querySelector('canvas');
         if (cvs) {
@@ -1171,9 +1170,36 @@ function confirmManualMarks() {
             });
             ctx.fillStyle='rgba(0,0,0,0.75)'; ctx.fillRect(0,0,session.drawW,32);
             ctx.fillStyle='#00d4ff'; ctx.font='bold 14px monospace';
-            ctx.fillText('T' + (session.targetIdx+1) + ': ' + marks.length + '発命中  散布' + groupCm.toFixed(1) + 'cm', 8, 22);
+            ctx.fillText(tLabel + '  ' + marks.length + '発命中  散布' + groupCm.toFixed(1) + 'cm', 8, 22);
         }
     });
+
+    // ターゲット別サマリーをcanvas-listの下に表示
+    const container = document.getElementById('canvas-list');
+    const old = container.querySelector('.target-summary');
+    if (old) old.remove();
+    if (numTargets > 1 || Object.keys(targetGroupings).length > 0) {
+        const summary = document.createElement('div');
+        summary.className = 'target-summary';
+        summary.style.cssText = 'background:#050505; border:1px solid #222; border-radius:4px; padding:10px 12px; margin-top:8px; font-family:monospace; font-size:0.72rem; line-height:2;';
+        const avgGroup = individualGroupings.length
+            ? (individualGroupings.reduce((a,b)=>a+b,0) / individualGroupings.length).toFixed(1)
+            : '--';
+        let html = '<span style="color:#555; font-size:0.65rem; letter-spacing:1px;">TARGET SUMMARY</span><br>';
+        for (let t = 0; t < numTargets; t++) {
+            const grps = targetGroupings[t] || [];
+            const tGroup = grps.length ? (grps.reduce((a,b)=>a+b,0)/grps.length).toFixed(1) : '--';
+            const tHit = targetHits[t] || 0;
+            html += `<span style="color:#ffcc00;">T${t+1}</span>  命中: <strong style="color:#eee;">${tHit}発</strong>  散布: <strong style="color:#eee;">${tGroup}cm</strong><br>`;
+        }
+        html += `<span style="color:#888;">平均散布界: <strong style="color:#32d74b;">${avgGroup}cm</strong>（精度評価に使用）</span>`;
+        summary.innerHTML = html;
+        container.appendChild(summary);
+    }
+
+    // 精度評価は平均散布界を使用
+    // generateAssessment内のmaxGrpを平均散布界に変更するため
+    // individualGroupingsをそのまま渡し、generateAssessment側でavgを使う
     generateAssessment();
 }
 
@@ -1202,16 +1228,23 @@ async function processMultipleImages(input, append = false) {
     document.getElementById('upload-add-btn').style.display = 'block';
 
     for (let i = 0; i < files.length; i++) {
+        // Shot行のターゲット選択セレクタから番号を取得（1-based → 0-based）
+        const tSelects = document.querySelectorAll('.shot-target-select');
+        const tIdx  = tSelects[i] ? (parseInt(tSelects[i].value) - 1) : i;
+        const tLabel = 'T' + (tIdx + 1);
         const rangeM = getRangeArray()[i] || 10;
         const wrapper = document.createElement('div');
         wrapper.className = "canvas-container";
         wrapper.style.position = 'relative';
+        // ターゲットラベルヘッダー
+        const tHeader = document.createElement('div');
+        tHeader.style.cssText = 'background:#0a0a0a; color:#ffcc00; font-size:0.75rem; font-family:monospace; font-weight:bold; padding:4px 10px; letter-spacing:1px; border-bottom:1px solid #222;';
+        tHeader.textContent = tLabel + '  Shot #' + (i + 1) + '  ' + rangeM + 'm';
+        wrapper.appendChild(tHeader);
 
         if (analysisMode === 'manual') {
-            // 手動モード: ズーム・マーキング可能なビューアを構築
             initManualTarget(wrapper, files[i], i, rangeM);
             container.appendChild(wrapper);
-            // 手動モードではここでは結果を記録しない（確定ボタン押下時に処理）
             continue;
         }
 
@@ -1387,7 +1420,11 @@ function generateAssessment() {
     const reloadFirstShot = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt + 1] != null && shotTimes[cfg.reloadAt] != null)
         ? (shotTimes[cfg.reloadAt + 1] - shotTimes[cfg.reloadAt]) : null;
     const totalTime = shotTimes[shotTimes.length - 1] || 0;
-    const maxGrp = Math.max(...individualGroupings, 0);
+    // 精度評価は平均散布界を使用（複数ターゲットの均等平均）
+    const avgGrp = individualGroupings.length
+        ? individualGroupings.reduce((a,b)=>a+b,0) / individualGroupings.length
+        : 0;
+    const maxGrp = avgGrp;  // 評価には平均散布界を使用
     const mag1Splits = cfg.reloadAt > 1 ? cfg.reloadAt - 1 : 0;
     const mag2Shots  = cfg.reloadAt > 0 ? cfg.totalShots - cfg.reloadAt - 1 : cfg.totalShots - 1;
     const expectedTotal = cfg.reloadAt > 0
@@ -3214,6 +3251,7 @@ function confirmReviewedShots() {
     document.getElementById('waveform-review-area').style.display = 'none';
     document.getElementById('acquisition-area').style.display = 'block';
     document.getElementById('acquisition-area').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    updateManualMax();
     // shot-log を更新
     const log = document.getElementById('shot-log');
     log.innerHTML = '';
