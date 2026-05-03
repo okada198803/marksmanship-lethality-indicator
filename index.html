@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver55 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver65 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -211,7 +211,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver55</h1>
+    <h1 class="app-title-main">MaLI ver65</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -227,6 +227,41 @@
 
 <div class="card">
     <h2>1. Scenario Config</h2>
+
+    <!-- カスタムシナリオ名 + 保存済み選択 -->
+    <div style="margin-bottom:12px;">
+        <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
+            <input type="text" id="cfg-scenario-name" placeholder="シナリオ名（カスタム保存時に使用）"
+                style="flex:1; background:var(--input-bg); color:var(--input-text); border:none;
+                       padding:8px 10px; border-radius:4px; font-size:0.8rem; font-family:monospace;">
+            <button onclick="saveCustomScenario()"
+                style="background:#1a1a00; border:1px solid #555; color:#aaa; padding:7px 12px;
+                       border-radius:4px; font-size:0.72rem; cursor:pointer; white-space:nowrap;">
+                保存
+            </button>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            <input type="checkbox" id="chk-use-exposure"
+                style="width:14px; height:14px; accent-color:var(--primary); cursor:pointer;">
+            <label for="chk-use-exposure" style="font-size:0.7rem; color:#888; cursor:pointer;">
+                暴露チェックリストを評価に含める（ターゲットごとの暴露有無）
+            </label>
+        </div>
+        <div style="display:none;"><!-- placeholder --></div
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+            <select id="custom-scenario-select" onchange="loadCustomScenario(this.value)"
+                style="flex:1; background:#1a1a1a; border:1px solid #333; color:#aaa;
+                       padding:7px 10px; border-radius:4px; font-size:0.75rem; font-family:monospace;">
+                <option value="">-- 保存済みカスタムシナリオを読込 --</option>
+            </select>
+            <button onclick="deleteCustomScenario()"
+                style="background:#1a0000; border:1px solid #3a0000; color:#ff3b30; padding:7px 10px;
+                       border-radius:4px; font-size:0.72rem; cursor:pointer; white-space:nowrap;">
+                削除
+            </button>
+        </div>
+    </div>
 
     <!-- プリセット選択 -->
     <div class="preset-bar" id="scenario-preset-bar" style="flex-wrap:wrap;">
@@ -249,7 +284,8 @@
     </div>
 
     <div class="config-grid">
-        <div style="grid-column: span 2;"><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
+        <div><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
+        <div></div>
         <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5" oninput="onShotCountChange()"></div>
         <div><label>目標命中数 (Goal)</label><input type="number" id="cfg-target-hits" value="5"></div>
         <div><label>標的高さ (cm)</label><input type="number" id="cfg-target-height" value="100"></div>
@@ -587,6 +623,7 @@ let currentDeadTime = 0.10; // 実銃固定（0.10s）
 // 波形録音バッファ（1000sps相当でRMSを蓄積）
 const WAVE_SPS = 200;          // 波形サンプリングレート（samples/s）
 let waveBuffer = [];           // [{t, rms}] — 射撃中に蓄積
+let uploadedImageCount = 0;    // アップロード済み画像枚数（T番号の連番管理）
 let waveSampleInterval = null;
 let reviewShotTimes = [];      // 手動レビュー用の発射時刻配列（autoまたは手動）
 
@@ -782,6 +819,21 @@ function onRangeChange() {
 function getRangeArray() {
     return Array.from(document.querySelectorAll('#target-range-list input'))
         .map(i => parseFloat(i.value) || 10);
+}
+
+// ターゲット番号（1-based）に対応する代表射距離を返す
+// shot-target-select でそのターゲットに割り当てられた最初のShotの射距離を使用
+function getRangeForTarget(tNum) {
+    const rows  = document.querySelectorAll('#target-range-list .target-range-row');
+    const rangeArr = getRangeArray();
+    for (let i = 0; i < rows.length; i++) {
+        const sel = rows[i].querySelector('.shot-target-select');
+        if (sel && parseInt(sel.value) === tNum) {
+            return rangeArr[i] || 10;
+        }
+    }
+    // 対応するShotがなければ rangeArr の先頭を返す
+    return rangeArr[0] || 10;
 }
 
 // 旧 autoConfigTargets 互換（CSV出力用に射距離文字列を生成）
@@ -1121,10 +1173,10 @@ function clearAllManualMarks() {
 function confirmManualMarks() {
     if (manualSessions.length === 0) { alert('先に写真をアップロードしてください。'); return; }
     cumulativeHits = 0; individualGroupings = [];
-    // 使用されているターゲット番号の最大値を取得
-    const tSelects = document.querySelectorAll('.shot-target-select');
-    const numTargets = tSelects.length
-        ? Math.max(...Array.from(tSelects).map(s => parseInt(s.value) || 1))
+    // 画像カードのセレクタから使用中の最大ターゲット番号を取得
+    const imgSelects = document.querySelectorAll('.img-target-select');
+    const numTargets = imgSelects.length
+        ? Math.max(...Array.from(imgSelects).map(s => parseInt(s.value) || 1))
         : 1;
     // ターゲット別に集計
     const targetGroupings = {}; // tIdx -> [groupCm...]
@@ -1132,12 +1184,9 @@ function confirmManualMarks() {
 
     manualSessions.forEach(session => {
         const marks = session.marks;
-        // Shotインデックスに対応するセレクタからターゲット番号を取得
-        const allSelects = document.querySelectorAll('.shot-target-select');
-        const tIdxRaw = allSelects[session.targetIdx]
-            ? (parseInt(allSelects[session.targetIdx].value) - 1)
-            : (session.targetIdx % numTargets);
-        const tIdx  = tIdxRaw;
+        // 画像カードのセレクタからターゲット番号を取得（1-based → 0-based）
+        const imgSel = document.querySelector(`.img-target-select[data-img-idx="${session.targetIdx}"]`);
+        const tIdx  = imgSel ? (parseInt(imgSel.value) - 1) : session.targetIdx;
         const tLabel = 'T' + (tIdx + 1);
         const targetH = parseFloat(document.getElementById('cfg-target-height').value);
         const cmPerPx = targetH / session.drawH;
@@ -1213,6 +1262,7 @@ function setAnalysisMode(mode) {
     document.getElementById('mode-panel-manual').style.display = mode === 'manual' ? 'block' : 'none';
     const labels = { seal: '写真をアップロード（シール検出）', manual: '写真をアップロード（手動マーク）' };
     document.getElementById('upload-add-btn').style.display = 'none';
+    uploadedImageCount = 0;
     document.getElementById('upload-btn').textContent = labels[mode] || '写真を一括アップロード';
 }
 
@@ -1223,27 +1273,42 @@ async function processMultipleImages(input, append = false) {
         container.innerHTML = "";
         cumulativeHits = 0; individualGroupings = [];
         manualSessions = [];
+        uploadedImageCount = 0;
     }
-    // 追加アップロードボタンを表示
     document.getElementById('upload-add-btn').style.display = 'block';
 
     for (let i = 0; i < files.length; i++) {
-        // Shot行のターゲット選択セレクタから番号を取得（1-based → 0-based）
-        const tSelects = document.querySelectorAll('.shot-target-select');
-        const tIdx  = tSelects[i] ? (parseInt(tSelects[i].value) - 1) : i;
-        const tLabel = 'T' + (tIdx + 1);
-        const rangeM = getRangeArray()[i] || 10;
+        const imgGlobalIdx = uploadedImageCount;  // 通算画像番号（0-based）
+        uploadedImageCount++;
+
+        // アップロード順に T1, T2, T3… を自動割り当て
+        const autoTNum = imgGlobalIdx + 1;  // 1-based
+        // そのターゲット番号に割り当てられた最初のShotの射距離を使用
+        const rangeM   = getRangeForTarget(autoTNum);
+
         const wrapper = document.createElement('div');
         wrapper.className = "canvas-container";
         wrapper.style.position = 'relative';
-        // ターゲットラベルヘッダー
+        wrapper.dataset.imgIdx = imgGlobalIdx;
+
+        // ── ヘッダー: ターゲット番号セレクタ + ショット番号 + 射距離 ──
         const tHeader = document.createElement('div');
-        tHeader.style.cssText = 'background:#0a0a0a; color:#ffcc00; font-size:0.75rem; font-family:monospace; font-weight:bold; padding:4px 10px; letter-spacing:1px; border-bottom:1px solid #222;';
-        tHeader.textContent = tLabel + '  Shot #' + (i + 1) + '  ' + rangeM + 'm';
+        tHeader.style.cssText = 'background:#0a0a0a; display:flex; align-items:center; gap:8px; padding:5px 10px; border-bottom:1px solid #222; font-family:monospace; font-size:0.72rem;';
+        const tOptions = [1,2,3,4,5].map(n =>
+            `<option value="${n}" ${n === autoTNum ? 'selected' : ''}>T${n}</option>`
+        ).join('');
+        tHeader.innerHTML = `
+            <select class="img-target-select" data-img-idx="${imgGlobalIdx}"
+                style="background:#1a1a1a; border:1px solid #444; color:#ffcc00; padding:3px 6px;
+                       border-radius:4px; font-size:0.72rem; font-family:monospace; font-weight:bold; cursor:pointer;"
+                onchange="onImgTargetChange(this)">
+                ${tOptions}
+            </select>
+            <span style="color:#555;">画像 ${imgGlobalIdx + 1}  /  ${rangeM}m</span>`;
         wrapper.appendChild(tHeader);
 
         if (analysisMode === 'manual') {
-            initManualTarget(wrapper, files[i], i, rangeM);
+            initManualTarget(wrapper, files[i], imgGlobalIdx, rangeM);
             container.appendChild(wrapper);
             continue;
         }
@@ -1262,8 +1327,7 @@ async function processMultipleImages(input, append = false) {
                 if (drawW > MAX_W) { drawH = Math.round(drawH * MAX_W / drawW); drawW = MAX_W; }
                 cvs.width = drawW; cvs.height = drawH;
                 ctx.drawImage(imgEl, 0, 0, drawW, drawH);
-
-                const result = analyzeBlueMarks(ctx, drawW, drawH, i + 1);
+                const result = analyzeBlueMarks(ctx, drawW, drawH, imgGlobalIdx + 1);
                 resolve(result);
             };
             imgEl.src = URL.createObjectURL(files[i]);
@@ -1274,6 +1338,13 @@ async function processMultipleImages(input, append = false) {
     }
 
     if (analysisMode !== 'manual') generateAssessment();
+}
+
+// 画像カードのターゲット番号変更時: ヘッダーの色を更新
+function onImgTargetChange(sel) {
+    const tNum = parseInt(sel.value);
+    const tColors = ['#ffcc00','#32d74b','#0099ff','#ff9500','#ff3b30'];
+    sel.style.color = tColors[(tNum - 1) % tColors.length];
 }
 
 /* ═══════════════════════════════════════════
@@ -1458,7 +1529,7 @@ function generateAssessment() {
         },
         adapt: { grade: null, val: null },
         scenarioType: preset ? preset.scenarioType : 'custom',
-        preset: preset,
+        preset: preset || { evalAxes: { exposure: document.getElementById('chk-use-exposure')?.checked ? 'checklist' : false } },
     };
 
     const createDetailRow = (lbl, stat, unit, decimals=2) =>
@@ -1525,6 +1596,35 @@ function generateAssessment() {
             </div>`;
         } else if (stype === 'suppress_day' || stype === 'suppress_night') {
             return ''; // 暴露評価なし
+        }
+        // カスタム: evalAxes.exposure='checklist' の場合はターゲット別チェックリストを表示
+        if (preset && preset.evalAxes?.exposure === 'checklist') {
+            // アップロード済み画像のターゲット番号から一意のターゲット一覧を生成
+            const imgSelects = Array.from(document.querySelectorAll('.img-target-select'));
+            const usedTargets = imgSelects.length
+                ? [...new Set(imgSelects.map(s => parseInt(s.value)))].sort((a,b)=>a-b)
+                : [1];
+            const goalExp = preset.goalExposureCount || 1;
+            const checks = usedTargets.map((tNum, i) => `
+                <div style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #111;">
+                    <span style="font-size:0.75rem; color:#ffcc00; min-width:40px; font-family:monospace;">T${tNum}</span>
+                    <button id="exp-btn-${i}-yes" onclick="setExposure(${i}, true)"
+                        style="flex:1; padding:5px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.72rem;">
+                        暴露あり
+                    </button>
+                    <button id="exp-btn-${i}-no" onclick="setExposure(${i}, false)"
+                        style="flex:1; padding:5px; border-radius:4px; border:1px solid #444; background:#111; color:#888; cursor:pointer; font-size:0.72rem;">
+                        暴露なし
+                    </button>
+                </div>`).join('');
+            finalStats.exposure._targetCount = usedTargets.length;
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【暴露 / Exposure】ターゲットごと暴露有無</span>
+                <div style="font-size:0.65rem; color:#555; margin-bottom:6px;">目標値: ${goalExp}回以下で合格</div>
+                ${checks}
+                <div id="exp-summary" style="font-size:0.72rem; color:#555; font-family:monospace; padding:6px 0 2px;">未入力</div>
+            </div>`;
         }
         // カスタム: 合計時間のみ
         return `
@@ -1658,7 +1758,8 @@ function setExposure(idx, hasExposure) {
     const checks = finalStats.exposure.checklist;
     const filled = checks.filter(v => v !== null).length;
     const count = checks.filter(v => v === true).length;
-    const goal = preset.goalExposureCount ?? 1;
+    // preset が null（カスタム）の場合は finalStats から目標値を参照
+    const goal = (preset?.goalExposureCount) ?? (finalStats.preset?.goalExposureCount) ?? 1;
     const expGrade = count <= goal ? (count === 0 ? 'A' : 'B') : (count <= goal + 1 ? 'C' : 'D');
     finalStats.exposure.checkGrade = expGrade;
 
@@ -1713,8 +1814,10 @@ function drawRadar() {
         axes.push({ label: '制御', score: gradeToScore(finalStats.control.split.grade) });
     }
 
-    // 暴露: 姿勢変換のみ
-    if (stype === 'posture') {
+    // 暴露: 姿勢変換 または カスタムでchecklist有効
+    const hasExposureChecklist = stype === 'posture' ||
+        (stype === 'custom' && finalStats.preset?.evalAxes?.exposure === 'checklist');
+    if (hasExposureChecklist && finalStats.exposure.checkGrade) {
         const expG = finalStats.exposure.checkGrade || 'B';
         axes.push({ label: '暴露', score: gradeToScore(expG) });
     }
@@ -3393,6 +3496,119 @@ function exportSelectedCSV() {
 }
 
 /* ═══════════════════════════════════════════
+   カスタムシナリオ保存・読込
+═══════════════════════════════════════════ */
+const CUSTOM_SCENARIO_KEY = 'mali_custom_scenarios';
+
+function getCustomScenarios() {
+    try { return JSON.parse(localStorage.getItem(CUSTOM_SCENARIO_KEY) || '[]'); } catch { return []; }
+}
+
+function saveCustomScenarios(list) {
+    localStorage.setItem(CUSTOM_SCENARIO_KEY, JSON.stringify(list));
+}
+
+// 保存済みリストをセレクタに反映
+function refreshCustomScenarioSelect() {
+    const sel = document.getElementById('custom-scenario-select');
+    if (!sel) return;
+    const list = getCustomScenarios();
+    sel.innerHTML = '<option value="">-- 保存済みカスタムシナリオを読込 --</option>' +
+        list.map((s, i) =>
+            `<option value="${i}">${s.name}  (${s.totalShots}発 / ${s.rangeStr})</option>`
+        ).join('');
+}
+
+// 現在の設定をカスタムシナリオとして保存
+function saveCustomScenario() {
+    const name = document.getElementById('cfg-scenario-name').value.trim();
+    if (!name) { alert('シナリオ名を入力してください。'); return; }
+
+    const rangeInputs = Array.from(document.querySelectorAll('#target-range-list input'))
+        .map(i => parseFloat(i.value) || 10);
+    const tSelects = Array.from(document.querySelectorAll('#target-range-list .shot-target-select'))
+        .map(s => parseInt(s.value) || 1);
+
+    const useExposure = document.getElementById('chk-use-exposure')?.checked || false;
+
+    const scenario = {
+        name,
+        totalShots:    parseInt(document.getElementById('cfg-total-shots').value)    || 5,
+        targetHits:    parseInt(document.getElementById('cfg-target-hits').value)     || 3,
+        targetHeight:  parseFloat(document.getElementById('cfg-target-height').value) || 100,
+        targetGrouping:parseFloat(document.getElementById('cfg-target-grouping').value)||15,
+        targetFirst:   parseFloat(document.getElementById('cfg-target-first').value)  || 1.5,
+        targetSplit:   parseFloat(document.getElementById('cfg-target-split').value)  || 0.5,
+        targetReload:  parseFloat(document.getElementById('cfg-target-reload').value) || 0,
+        reloadAt:      parseInt(document.getElementById('cfg-reload-at').value)       || 0,
+        defaultRanges:      rangeInputs,
+        defaultTargetNums:  tSelects,
+        evalAxes: { speed: true, accuracy: true, control: 'reload', exposure: useExposure ? 'checklist' : false, adapt: false },
+        goalExposureCount: 1,
+        rangeStr: [...new Set(rangeInputs)].join('/') + 'm',
+        savedAt: new Date().toLocaleString('ja-JP'),
+    };
+
+    const list = getCustomScenarios();
+    // 同名なら上書き確認
+    const existIdx = list.findIndex(s => s.name === name);
+    if (existIdx !== -1) {
+        if (!confirm(`「${name}」は既に保存されています。上書きしますか？`)) return;
+        list[existIdx] = scenario;
+    } else {
+        list.push(scenario);
+    }
+    saveCustomScenarios(list);
+    refreshCustomScenarioSelect();
+    // 保存したシナリオを選択状態にする
+    const sel = document.getElementById('custom-scenario-select');
+    const newIdx = getCustomScenarios().findIndex(s => s.name === name);
+    if (sel && newIdx !== -1) sel.value = newIdx;
+    alert(`「${name}」を保存しました。`);
+}
+
+// 保存済みシナリオを読込・設定に反映
+function loadCustomScenario(idxStr) {
+    if (idxStr === '' || idxStr === null) return;
+    const list = getCustomScenarios();
+    const s = list[parseInt(idxStr)];
+    if (!s) return;
+
+    // プリセットボタンをカスタムに
+    document.querySelectorAll('#scenario-preset-bar .preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('preset-btn-custom').classList.add('active');
+    currentPreset = 'custom';
+
+    document.getElementById('cfg-scenario-name').value     = s.name;
+    document.getElementById('cfg-total-shots').value       = s.totalShots;
+    document.getElementById('cfg-target-hits').value       = s.targetHits;
+    document.getElementById('cfg-target-height').value     = s.targetHeight;
+    document.getElementById('cfg-target-grouping').value   = s.targetGrouping;
+    document.getElementById('cfg-target-first').value      = s.targetFirst;
+    document.getElementById('cfg-target-split').value      = s.targetSplit;
+    document.getElementById('cfg-target-reload').value     = s.targetReload || 0;
+    document.getElementById('cfg-reload-at').value         = s.reloadAt    || 0;
+
+    buildTargetRangeList(s.defaultRanges, s.defaultTargetNums);
+    updateManualMax();
+    // 暴露チェックリストのトグルを復元
+    const expChk = document.getElementById('chk-use-exposure');
+    if (expChk) expChk.checked = (s.evalAxes?.exposure === 'checklist');
+}
+
+// 選択中のカスタムシナリオを削除
+function deleteCustomScenario() {
+    const sel = document.getElementById('custom-scenario-select');
+    if (!sel || sel.value === '') { alert('削除するシナリオを選択してください。'); return; }
+    const list = getCustomScenarios();
+    const s = list[parseInt(sel.value)];
+    if (!s || !confirm(`「${s.name}」を削除しますか？`)) return;
+    list.splice(parseInt(sel.value), 1);
+    saveCustomScenarios(list);
+    refreshCustomScenarioSelect();
+}
+
+/* ═══════════════════════════════════════════
    CSV IMPORT & SAMPLE DATA
 ═══════════════════════════════════════════ */
 
@@ -3675,7 +3891,8 @@ document.getElementById('startBtn').onclick = async () => {
 };
 
 // ─── 初期化 ───
-applyPreset('custom');
+applyPreset('posture');
+refreshCustomScenarioSelect();
 
 </script>
 </body>
