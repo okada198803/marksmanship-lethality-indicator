@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver65 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver61 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -143,6 +143,37 @@
         }
         .btn-danger { background: #1a0000; color: var(--danger); border-color: #3a0000; }
 
+        /* ─── ACTION TIMING (HOLD) BUTTONS ─── */
+        #action-timing-bar {
+            display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+            background: rgba(8,8,8,0.96); border-top: 2px solid var(--primary);
+            padding: 8px 10px 14px; backdrop-filter: blur(6px);
+        }
+        #action-timing-bar .at-row { display: flex; gap: 8px; }
+        .at-btn {
+            flex: 1; min-height: 62px; border: 2px solid #444; border-radius: 8px;
+            background: #181818; color: #bbb; font-family: 'Barlow Condensed', sans-serif;
+            font-size: 0.82rem; font-weight: 700; letter-spacing: 1px; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 2px; user-select: none; -webkit-user-select: none;
+            touch-action: manipulation; transition: all 0.1s;
+        }
+        .at-btn .at-label { font-size: 0.72rem; letter-spacing: 0.5px; }
+        .at-btn .at-timer { font-family: 'Share Tech Mono', monospace; font-size: 1.3rem; color: #555; }
+        .at-btn.at-active { border-color: var(--primary); background: #1a1800; }
+        .at-btn.at-active .at-timer { color: var(--primary); }
+        .at-btn.at-active.at-reload { border-color: var(--accent); background: #001a33; }
+        .at-btn.at-active.at-reload .at-timer { color: var(--accent); }
+        .at-btn.at-active.at-malfunction { border-color: var(--danger); background: #1a0800; }
+        .at-btn.at-active.at-malfunction .at-timer { color: var(--danger); }
+        .at-log { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+        .at-log-badge {
+            font-family: 'Share Tech Mono', monospace; font-size: 0.65rem;
+            padding: 2px 6px; border-radius: 3px; border: 1px solid #333; background: #0a0a0a;
+        }
+        .at-log-badge.at-log-reload { color: var(--accent); border-color: #0055aa; }
+        .at-log-badge.at-log-malfunction { color: var(--danger); border-color: #661a00; }
+
         /* ─── CANVAS ─── */
         .canvas-container { width: 100%; background: #000; margin-bottom: 10px; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
         canvas.shot-canvas { width: 100%; height: auto; display: block; }
@@ -211,7 +242,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver65</h1>
+    <h1 class="app-title-main">MaLI ver61</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -293,6 +324,7 @@
         <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
         <div><label>目標間隔 (s)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
         <div><label>目標リロード (s)</label><input type="number" id="cfg-target-reload" value="3.5" step="0.1"></div>
+        <div><label>目標排除 (s)</label><input type="number" id="cfg-target-malfunction" value="5.0" step="0.1"></div>
         <div><label>リロード弾数</label><input type="number" id="cfg-reload-at" value="0" oninput="onShotCountChange()"></div>
     </div>
 
@@ -615,6 +647,12 @@
    STATE
 ═══════════════════════════════════════════ */
 let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
+
+// ── Action Timing (hold-to-time) ──
+let actionTimings = [];        // [{type:'reload'|'malfunction', startT, duration}]
+let atActiveType = null;       // currently pressed button type
+let atPressStart = 0;          // performance.now() when pressed
+let atUpdateInterval = null;   // timer display update interval
 let cumulativeHits = 0, individualGroupings = [], finalStats = {};
 let animFrameId = null;
 let lastShotTime = -999;
@@ -738,6 +776,7 @@ function applyPreset(key) {
     document.getElementById('cfg-target-split').value   = p.targetSplit;
     document.getElementById('cfg-target-reload').value  = p.targetReload || 0;
     document.getElementById('cfg-reload-at').value      = p.reloadAt || 0;
+    document.getElementById('cfg-target-malfunction').value = p.targetMalfunction || 5.0;
     buildTargetRangeList(p.defaultRanges, p.defaultTargetNums || null);
     updateManualMax();
 }
@@ -945,6 +984,17 @@ function updateShotLog(t, reloadAt) {
 function finishEngagement() {
     isRunning = false;
     if (waveSampleInterval) { clearInterval(waveSampleInterval); waveSampleInterval = null; }
+    // Stop any active action timing
+    if (atActiveType) {
+        const duration = (performance.now() - atPressStart) / 1000;
+        if (duration >= 0.20) {
+            const engagementT = startTime ? (performance.now() - startTime) / 1000 : 0;
+            actionTimings.push({ type: atActiveType, startT: engagementT - duration, duration: parseFloat(duration.toFixed(3)) });
+        }
+        if (atUpdateInterval) { clearInterval(atUpdateInterval); atUpdateInterval = null; }
+        atActiveType = null;
+    }
+    showActionTimingBar(false);
     const btn = document.getElementById('startBtn');
     btn.innerText = "DONE";
     btn.classList.add('done');
@@ -958,6 +1008,79 @@ function finishEngagement() {
 function forceFinishEngagement() {
     if (!isRunning) return;
     finishEngagement();
+}
+
+/* ═══════════════════════════════════════════
+   ACTION TIMING — hold-to-time buttons
+═══════════════════════════════════════════ */
+function showActionTimingBar(show) {
+    const bar = document.getElementById('action-timing-bar');
+    if (!bar) return;
+    bar.style.display = show ? 'block' : 'none';
+    // Add bottom padding to body to prevent content from being hidden behind the bar
+    document.body.style.paddingBottom = show ? '110px' : '40px';
+}
+
+function atStart(type, ev) {
+    ev.preventDefault();
+    if (!isRunning || atActiveType) return;
+    atActiveType = type;
+    atPressStart = performance.now();
+    const btn = document.getElementById('at-btn-' + type);
+    btn?.classList.add('at-active');
+    const timerEl = document.getElementById('at-timer-' + type);
+    if (timerEl) timerEl.textContent = '0.00';
+    atUpdateInterval = setInterval(() => {
+        const elapsed = (performance.now() - atPressStart) / 1000;
+        if (timerEl) timerEl.textContent = elapsed.toFixed(2);
+    }, 30);
+}
+
+function atEnd(type, ev) {
+    ev.preventDefault();
+    if (atActiveType !== type) return;
+    const duration = (performance.now() - atPressStart) / 1000;
+    if (atUpdateInterval) { clearInterval(atUpdateInterval); atUpdateInterval = null; }
+    const btn = document.getElementById('at-btn-' + type);
+    btn?.classList.remove('at-active');
+    const timerEl = document.getElementById('at-timer-' + type);
+    if (timerEl) timerEl.textContent = duration.toFixed(2);
+
+    // Only record if held for at least 0.2s (ignore accidental taps)
+    if (duration >= 0.20) {
+        const engagementT = startTime ? (performance.now() - startTime) / 1000 : 0;
+        actionTimings.push({ type, startT: engagementT - duration, duration: parseFloat(duration.toFixed(3)) });
+        atRenderLog();
+    }
+    atActiveType = null;
+}
+
+function atRenderLog() {
+    const log = document.getElementById('at-log');
+    if (!log) return;
+    log.innerHTML = actionTimings.map((a, i) =>
+        `<span class="at-log-badge at-log-${a.type}" onclick="atRemoveEntry(${i})" style="cursor:pointer;" title="タップで削除">` +
+        `${a.type === 'reload' ? 'RLD' : 'MAL'} ${a.duration.toFixed(2)}s</span>`
+    ).join('');
+}
+
+function atRemoveEntry(idx) {
+    if (!isRunning) return;
+    actionTimings.splice(idx, 1);
+    atRenderLog();
+}
+
+function atReset() {
+    actionTimings = [];
+    atActiveType = null;
+    if (atUpdateInterval) { clearInterval(atUpdateInterval); atUpdateInterval = null; }
+    const log = document.getElementById('at-log');
+    if (log) log.innerHTML = '';
+    ['reload', 'malfunction'].forEach(t => {
+        const el = document.getElementById('at-timer-' + t);
+        if (el) el.textContent = '0.00';
+        document.getElementById('at-btn-' + t)?.classList.remove('at-active');
+    });
 }
 
 /* ═══════════════════════════════════════════
@@ -1474,13 +1597,21 @@ function generateAssessment() {
         split: parseFloat(document.getElementById('cfg-target-split').value),
         reload: parseFloat(document.getElementById('cfg-target-reload').value) || 0,
         reloadAt: parseInt(document.getElementById('cfg-reload-at').value) || 0,
+        malfunctionGoal: parseFloat(document.getElementById('cfg-target-malfunction').value) || 5.0,
     };
 
     // ── タイミング計算 ──
     const firstShot = shotTimes[0] || 0;
-    const reloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt] != null)
+    // Direct measurement from action timing buttons takes priority
+    const atReloads = actionTimings.filter(a => a.type === 'reload');
+    const atMalfunctions = actionTimings.filter(a => a.type === 'malfunction');
+    const directReloadTime = atReloads.length > 0
+        ? atReloads.reduce((s, a) => s + a.duration, 0) / atReloads.length : null;
+    const calcReloadTime = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt] != null)
         ? Math.max(0, (shotTimes[cfg.reloadAt] - shotTimes[cfg.reloadAt - 1]) - cfg.first)
         : 0;
+    const reloadTime = directReloadTime !== null ? directReloadTime : calcReloadTime;
+    const reloadMeasured = directReloadTime !== null; // flag: direct vs calculated
     let splits = [];
     for (let i = 1; i < shotTimes.length; i++) {
         if (cfg.reloadAt > 0 && i === cfg.reloadAt)     continue;
@@ -1520,7 +1651,12 @@ function generateAssessment() {
         },
         control: {
             split:    { val: avgSplit,   goal: cfg.split,   grade: getGrade(avgSplit, cfg.split, true) },
-            reload:   { val: reloadTime, goal: cfg.reload,  grade: cfg.reloadAt > 0 ? getGrade(reloadTime, cfg.reload, true) : 'B' },
+            reload:   { val: reloadTime, goal: cfg.reload,  grade: (cfg.reloadAt > 0 || reloadMeasured) ? getGrade(reloadTime, cfg.reload, true) : 'B', measured: reloadMeasured },
+            malfunction: atMalfunctions.length > 0
+                ? { val: atMalfunctions.reduce((s,a)=>s+a.duration,0)/atMalfunctions.length,
+                    goal: cfg.malfunctionGoal, count: atMalfunctions.length,
+                    grade: getGrade(atMalfunctions.reduce((s,a)=>s+a.duration,0)/atMalfunctions.length, cfg.malfunctionGoal, true) }
+                : null,
             headshot: null,   // チェックリスト: 成績確定後に入力
         },
         exposure: {
@@ -1528,6 +1664,7 @@ function generateAssessment() {
             checklist: null,  // チェックリスト: 成績確定後に入力
         },
         adapt: { grade: null, val: null },
+        actionTimings: [...actionTimings],
         scenarioType: preset ? preset.scenarioType : 'custom',
         preset: preset || { evalAxes: { exposure: document.getElementById('chk-use-exposure')?.checked ? 'checklist' : false } },
     };
@@ -1541,15 +1678,22 @@ function generateAssessment() {
     const stype = finalStats.scenarioType;
 
     const controlHtml = (() => {
+        // Malfunction section (common to all scenarios)
+        const malfHtml = finalStats.control.malfunction
+            ? `<div class="eval-group" style="margin-top:8px;">
+                <span class="eval-group-title">【制御 / Control】弾づまり対処</span>
+                ${createDetailRow("平均排除時間 (" + finalStats.control.malfunction.count + "回)", finalStats.control.malfunction, "s")}
+               </div>` : '';
+
         if (stype === 'posture') {
-            // 弾倉交換時間
+            const reloadLabel = finalStats.control.reload.measured ? "弾倉交換所要時間（実測）" : "弾倉交換所要時間（推定）";
+            const hasReload = cfg.reloadAt > 0 || finalStats.control.reload.measured;
             return `
             <div class="eval-group">
                 <span class="eval-group-title">【制御 / Control】弾倉交換時間</span>
-                ${cfg.reloadAt > 0 ? createDetailRow("弾倉交換所要時間", finalStats.control.reload, "s") : '<div style="color:#555;font-size:0.75rem;padding:4px;">計測なし（リロード設定なし）</div>'}
-            </div>`;
+                ${hasReload ? createDetailRow(reloadLabel, finalStats.control.reload, "s") : '<div style="color:#555;font-size:0.75rem;padding:4px;">計測なし（リロード設定なし）</div>'}
+            </div>` + malfHtml;
         } else if (stype === 'suppress_day' || stype === 'suppress_night') {
-            // 5発目頭部命中チェック
             return `
             <div class="eval-group">
                 <span class="eval-group-title">【制御 / Control】5発目 頭部命中</span>
@@ -1566,9 +1710,17 @@ function generateAssessment() {
                 <div id="ctrl-head-result" style="font-size:0.72rem; color:#555; font-family:monospace; padding:2px 0;">
                     未入力
                 </div>
-            </div>`;
+            </div>` + malfHtml;
         }
-        return '';
+        // Custom scenario: show reload if measured, plus malfunction
+        if (finalStats.control.reload.measured) {
+            return `
+            <div class="eval-group">
+                <span class="eval-group-title">【制御 / Control】弾倉交換時間</span>
+                ${createDetailRow("弾倉交換所要時間（実測）", finalStats.control.reload, "s")}
+            </div>` + malfHtml;
+        }
+        return malfHtml;
     })();
 
     const exposureHtml = (() => {
@@ -1801,17 +1953,23 @@ function drawRadar() {
         score: avgScore([gradeToScore(finalStats.accuracy.hits.grade), gradeToScore(finalStats.accuracy.group.grade)])
     });
 
-    // 制御: シナリオ依存
+    // 制御: シナリオ依存 + 弾づまり対処
+    const malfScore = finalStats.control.malfunction ? gradeToScore(finalStats.control.malfunction.grade) : null;
     if (stype === 'posture') {
-        // 弾倉交換時間のみ
-        axes.push({ label: '制御', score: gradeToScore(finalStats.control.reload.grade) });
+        const scores = [gradeToScore(finalStats.control.reload.grade)];
+        if (malfScore !== null) scores.push(malfScore);
+        axes.push({ label: '制御', score: avgScore(scores) });
     } else if (stype === 'suppress_day' || stype === 'suppress_night') {
-        // 頭部命中チェック
         const hs = finalStats.control.headshot;
-        axes.push({ label: '制御', score: hs ? gradeToScore(hs.grade) : 0.5 });
+        const scores = [hs ? gradeToScore(hs.grade) : 0.5];
+        if (malfScore !== null) scores.push(malfScore);
+        axes.push({ label: '制御', score: avgScore(scores) });
     } else {
-        // カスタム: 連射間隔
-        axes.push({ label: '制御', score: gradeToScore(finalStats.control.split.grade) });
+        // カスタム: 連射間隔 + reload(実測) + malfunction
+        const scores = [gradeToScore(finalStats.control.split.grade)];
+        if (finalStats.control.reload.measured) scores.push(gradeToScore(finalStats.control.reload.grade));
+        if (malfScore !== null) scores.push(malfScore);
+        axes.push({ label: '制御', score: avgScore(scores) });
     }
 
     // 暴露: 姿勢変換 または カスタムでchecklist有効
@@ -2377,7 +2535,8 @@ function saveSession() {
         shotTimes: [...shotTimes],
         stats: JSON.parse(JSON.stringify(finalStats)),
         groupings: [...individualGroupings],
-        hits: cumulativeHits
+        hits: cumulativeHits,
+        actionTimings: [...actionTimings]
     };
     sessions.unshift(session);
     if (sessions.length > 20) sessions.splice(20);
@@ -3429,6 +3588,9 @@ function sessionToCSVRow(s) {
         // 制御
         stats.control?.reload?.val?.toFixed(2) || stats.control?.headshot?.val || '',
         stats.control?.reload?.grade || stats.control?.headshot?.grade || '',
+        // 弾づまり対処
+        stats.control?.malfunction?.val?.toFixed(2) || '',
+        stats.control?.malfunction?.grade || '',
         // 暴露
         stats.exposure?.checkGrade           || '',
         // 適応
@@ -3450,6 +3612,7 @@ function exportSessionCSV(id) {
         'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
         'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
         'Control_Val','Control_Grade',
+        'Malfunction_Val','Malfunction_Grade',
         'Exposure_Grade','Adapt_Grade',
         'Range_m',
     ];
@@ -3480,6 +3643,7 @@ function exportSelectedCSV() {
         'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
         'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
         'Control_Val','Control_Grade',
+        'Malfunction_Val','Malfunction_Grade',
         'Exposure_Grade','Adapt_Grade',
         'Range_m',
     ];
@@ -3540,6 +3704,7 @@ function saveCustomScenario() {
         targetFirst:   parseFloat(document.getElementById('cfg-target-first').value)  || 1.5,
         targetSplit:   parseFloat(document.getElementById('cfg-target-split').value)  || 0.5,
         targetReload:  parseFloat(document.getElementById('cfg-target-reload').value) || 0,
+        targetMalfunction: parseFloat(document.getElementById('cfg-target-malfunction').value) || 5.0,
         reloadAt:      parseInt(document.getElementById('cfg-reload-at').value)       || 0,
         defaultRanges:      rangeInputs,
         defaultTargetNums:  tSelects,
@@ -3587,6 +3752,7 @@ function loadCustomScenario(idxStr) {
     document.getElementById('cfg-target-first').value      = s.targetFirst;
     document.getElementById('cfg-target-split').value      = s.targetSplit;
     document.getElementById('cfg-target-reload').value     = s.targetReload || 0;
+    document.getElementById('cfg-target-malfunction').value = s.targetMalfunction || 5.0;
     document.getElementById('cfg-reload-at').value         = s.reloadAt    || 0;
 
     buildTargetRangeList(s.defaultRanges, s.defaultTargetNums);
@@ -3820,9 +3986,11 @@ function exportFullCSV() {
     const shooter = document.getElementById('cfg-shooter').value;
     const rangeArr = getRangeArray();
     const now = new Date().toLocaleString('ja-JP');
-    let headers = ["Timestamp","ShooterID","Total_Shots","Goal_Hits","Actual_Hits","Hits_Grade","Max_Grouping_cm","Grouping_Grade","FirstShot_s","FirstShot_Grade","AvgSplit_s","Split_Grade","Reload_s","Reload_Grade","TotalExposure_s","Exposure_Grade"];
+    let headers = ["Timestamp","ShooterID","Total_Shots","Goal_Hits","Actual_Hits","Hits_Grade","Max_Grouping_cm","Grouping_Grade","FirstShot_s","FirstShot_Grade","AvgSplit_s","Split_Grade","Reload_s","Reload_Grade","Malfunction_s","Malfunction_Grade","TotalExposure_s","Exposure_Grade"];
     rangeArr.forEach((r,i) => headers.push(`Range_T${i+1}_m`,`Grouping_T${i+1}_cm`));
     for (let i=1;i<=shotTimes.length;i++) headers.push(`Shot${i}_Time`);
+    const malfVal = finalStats.control?.malfunction?.val;
+    const malfGrade = finalStats.control?.malfunction?.grade;
     let row = [
         now, shooter,
         document.getElementById('cfg-total-shots').value, document.getElementById('cfg-target-hits').value,
@@ -3831,6 +3999,7 @@ function exportFullCSV() {
         finalStats.speed.first.val.toFixed(2), finalStats.speed.first.grade,
         finalStats.control.split.val.toFixed(2), finalStats.control.split.grade,
         finalStats.control.reload.val.toFixed(2), finalStats.control.reload.grade,
+        malfVal != null ? malfVal.toFixed(2) : '', malfGrade || '',
         finalStats.exposure.total.val.toFixed(2), finalStats.exposure.total.grade
     ];
     rangeArr.forEach((r,i) => row.push(r,(individualGroupings[i]||0).toFixed(2)));
@@ -3838,7 +4007,7 @@ function exportFullCSV() {
     const csv = "\uFEFF" + headers.join(",") + "\n" + row.join(",");
     const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = `MaLI_v55_Report_${shooter}.csv`; a.click();
+    a.href = URL.createObjectURL(blob); a.download = `MaLI_v61_Report_${shooter}.csv`; a.click();
 }
 
 /* ═══════════════════════════════════════════
@@ -3879,6 +4048,7 @@ document.getElementById('startBtn').onclick = async () => {
         btn.innerText = "RECORDING";
         btn.disabled = false;
         document.getElementById('finishBtn').style.display = 'block';
+        atReset(); showActionTimingBar(true);
 
         // 波形バッファへの蓄積開始
         waveSampleInterval = setInterval(() => {
@@ -3895,5 +4065,24 @@ applyPreset('posture');
 refreshCustomScenarioSelect();
 
 </script>
+<!-- ===== ACTION TIMING BAR (Fixed bottom during engagement) ===== -->
+<div id="action-timing-bar">
+    <div class="at-row">
+        <button class="at-btn at-reload" id="at-btn-reload"
+            ontouchstart="atStart('reload',event)" ontouchend="atEnd('reload',event)" ontouchcancel="atEnd('reload',event)"
+            onmousedown="atStart('reload',event)" onmouseup="atEnd('reload',event)" onmouseleave="atEnd('reload',event)">
+            <span class="at-label">弾倉交換</span>
+            <span class="at-timer" id="at-timer-reload">0.00</span>
+        </button>
+        <button class="at-btn at-malfunction" id="at-btn-malfunction"
+            ontouchstart="atStart('malfunction',event)" ontouchend="atEnd('malfunction',event)" ontouchcancel="atEnd('malfunction',event)"
+            onmousedown="atStart('malfunction',event)" onmouseup="atEnd('malfunction',event)" onmouseleave="atEnd('malfunction',event)">
+            <span class="at-label">弾づまり対処</span>
+            <span class="at-timer" id="at-timer-malfunction">0.00</span>
+        </button>
+    </div>
+    <div class="at-log" id="at-log"></div>
+</div>
+
 </body>
 </html>
