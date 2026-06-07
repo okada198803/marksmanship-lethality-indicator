@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver61 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver64 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -116,6 +116,42 @@
             border-radius: 3px; color: var(--primary);
         }
         .shot-badge.reload-badge { border-color: var(--accent); color: var(--accent); }
+
+        /* ─── TRAINING CONFIG ─── */
+        .tc-card { border-color: #1a2a1a; background: #0a110a; }
+        .tc-card h2 { color: var(--success); }
+        .tc-roster-item {
+            display: flex; align-items: center; gap: 8px; padding: 4px 0;
+            border-bottom: 1px solid #111;
+        }
+        .tc-roster-item input {
+            flex: 1; background: #0d0d0d; border: 1px solid #2a2a2a; color: #ddd;
+            padding: 5px 8px; border-radius: 3px; font-size: 0.8rem; font-family: 'Barlow Condensed', sans-serif;
+        }
+        .tc-roster-item .tc-num {
+            font-family: 'Share Tech Mono', monospace; font-size: 0.65rem;
+            color: var(--success); min-width: 22px; text-align: right;
+        }
+        .tc-del-btn {
+            background: none; border: 1px solid #333; color: #666; width: 24px; height: 24px;
+            border-radius: 3px; cursor: pointer; font-size: 0.75rem; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #tc-qr-area {
+            background: #fff; padding: 12px; border-radius: 6px; display: none;
+            align-items: center; justify-content: center; flex-direction: column; gap: 8px;
+        }
+        #tc-qr-canvas-wrap canvas { display: block; }
+        .tc-badge {
+            background: #0a110a; border: 1px solid var(--success); color: var(--success);
+            font-size: 0.65rem; padding: 2px 8px; border-radius: 3px;
+            font-family: 'Share Tech Mono', monospace;
+        }
+        .shooter-select {
+            background: var(--input-bg); color: var(--input-text); border: none;
+            padding: 8px 10px; border-radius: 4px; font-size: 0.85rem; width: 100%;
+            font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+        }
 
         /* ─── SENS AREA ─── */
         .sens-area { background: #000; padding: 12px; border-radius: 4px; border: 1px solid #222; margin-bottom: 12px; }
@@ -238,11 +274,12 @@
         .mic-dot.active { background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver61</h1>
+    <h1 class="app-title-main">MaLI ver64</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -255,6 +292,58 @@
 
 <!-- ===== SESSION TAB ===== -->
 <div id="tab-session" class="tab-pane active">
+
+<!-- ===== TRAINING CONFIG ===== -->
+<div class="card tc-card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h2 style="margin:0;">0. Training Config</h2>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span id="tc-active-badge" class="tc-badge" style="display:none;">設定済</span>
+            <button onclick="tcToggle()" style="background:none; border:1px solid #2a3a2a; color:#666;
+                padding:4px 10px; border-radius:3px; font-size:0.7rem; cursor:pointer;" id="tc-toggle-btn">▼ 展開</button>
+        </div>
+    </div>
+
+    <div id="tc-body" style="display:none;">
+        <div class="config-grid" style="margin-bottom:12px;">
+            <div><label>部隊ID</label><input type="text" id="tc-unit-id" placeholder="例: 1-INF-A" oninput="tcMarkDirty()"></div>
+            <div><label>訓練名</label><input type="text" id="tc-event-name" placeholder="例: 小銃射撃検定" oninput="tcMarkDirty()"></div>
+            <div><label>訓練日</label><input type="date" id="tc-event-date" oninput="tcMarkDirty()"></div>
+            <div></div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label style="font-size:0.7rem; color:#aaa;">射手名簿</label>
+            <div style="display:flex; gap:6px;">
+                <button onclick="tcAddShooter()" style="background:#0a1a0a; border:1px solid #2a4a2a; color:var(--success);
+                    padding:4px 10px; border-radius:3px; font-size:0.72rem; cursor:pointer;">+ 追加</button>
+                <button onclick="tcImportRoster()" style="background:#0a0a1a; border:1px solid #2a2a4a; color:#66aaff;
+                    padding:4px 10px; border-radius:3px; font-size:0.72rem; cursor:pointer;">📋 貼付</button>
+            </div>
+        </div>
+        <div id="tc-roster-list" style="margin-bottom:12px; max-height:200px; overflow-y:auto;"></div>
+
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <button onclick="tcSaveAndGenQR()" class="btn-secondary" style="flex:2; border-color:var(--success); color:var(--success);">
+                保存 &amp; QR生成
+            </button>
+            <button onclick="tcExportJSON()" class="btn-secondary" style="flex:1; border-color:#66aaff; color:#66aaff; font-size:0.72rem;">
+                AirDrop
+            </button>
+        </div>
+
+        <!-- QR表示エリア -->
+        <div id="tc-qr-area" style="display:none; background:#fff; padding:16px; border-radius:6px; align-items:center; flex-direction:column; gap:10px;">
+            <div style="font-size:0.65rem; color:#333; font-family:monospace; text-align:center; margin-bottom:4px;">
+                iOSカメラでスキャン → 自動適用
+            </div>
+            <div id="tc-qr-canvas-wrap"></div>
+            <div id="tc-qr-size-warn" style="font-size:0.65rem; color:#cc3300; display:none;">
+                ⚠ 名簿が多いためQRが密になります。AirDropを推奨します。
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="card">
     <h2>1. Scenario Config</h2>
@@ -315,7 +404,13 @@
     </div>
 
     <div class="config-grid">
-        <div><label>射手 ID</label><input type="text" id="cfg-shooter" value="OPERATOR-01"></div>
+        <div>
+            <label>射手</label>
+            <div id="shooter-input-wrap">
+                <!-- 名簿なし: テキスト入力 / 名簿あり: セレクト -->
+                <input type="text" id="cfg-shooter" value="OPERATOR-01" style="width:100%; background:var(--input-bg); color:var(--input-text); border:none; padding:8px 10px; border-radius:4px; font-size:0.85rem; font-family:'Barlow Condensed',sans-serif; font-weight:700;">
+            </div>
+        </div>
         <div></div>
         <div><label>予定発射数 (Total)</label><input type="number" id="cfg-total-shots" value="5" oninput="onShotCountChange()"></div>
         <div><label>目標命中数 (Goal)</label><input type="number" id="cfg-target-hits" value="5"></div>
@@ -324,7 +419,7 @@
         <div><label>目標初弾 (s)</label><input type="number" id="cfg-target-first" value="1.5" step="0.1"></div>
         <div><label>目標間隔 (s)</label><input type="number" id="cfg-target-split" value="0.5" step="0.1"></div>
         <div><label>目標リロード (s)</label><input type="number" id="cfg-target-reload" value="3.5" step="0.1"></div>
-        <div><label>目標排除 (s)</label><input type="number" id="cfg-target-malfunction" value="5.0" step="0.1"></div>
+        <div><label>目標排除 (s)</label><input type="number" id="cfg-target-malfunction" value="3.0" step="0.1" title="A≤85% B≤115% C≤140% D>140%"></div>
         <div><label>リロード弾数</label><input type="number" id="cfg-reload-at" value="0" oninput="onShotCountChange()"></div>
     </div>
 
@@ -530,13 +625,20 @@
             <button onclick="exportSelectedCSV()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#32d74b; color:#32d74b;">
                 CSV出力
             </button>
+            <button onclick="exportSelectedJSON()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#34c759; color:#34c759;">
+                JSON / AirDrop
+            </button>
             <button onclick="deleteSelectedSessions()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#ff3b30; color:#ff3b30;">
                 削除
             </button>
             <button onclick="document.getElementById('csv-import-input').click()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#0099ff; color:#0099ff;">
-                CSVからインポート
+                CSVインポート
             </button>
             <input type="file" id="csv-import-input" accept=".csv" style="display:none;" onchange="importSessionsFromCSV(this)">
+            <button onclick="document.getElementById('json-import-input').click()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#0099ff; color:#0099ff;">
+                JSONマージ
+            </button>
+            <input type="file" id="json-import-input" accept=".json" multiple style="display:none;" onchange="importMergeJSON(this)">
             <button onclick="generateSampleData()" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px; border-color:#555; color:#555;">
                 サンプルデータ生成
             </button>
@@ -647,6 +749,197 @@
    STATE
 ═══════════════════════════════════════════ */
 let audioCtx, analyser, dataArray, isRunning = false, startTime, shotTimes = [];
+
+/* ═══════════════════════════════════════════
+   TRAINING CONFIG
+═══════════════════════════════════════════ */
+let trainingConfig = { unitId: '', eventName: '', eventDate: '', roster: [] };
+const TC_KEY = 'mali_training_config';
+
+function tcLoad() {
+    try {
+        const saved = localStorage.getItem(TC_KEY);
+        if (saved) trainingConfig = JSON.parse(saved);
+    } catch {}
+    tcRenderRoster();
+    document.getElementById('tc-unit-id').value   = trainingConfig.unitId   || '';
+    document.getElementById('tc-event-name').value = trainingConfig.eventName || '';
+    document.getElementById('tc-event-date').value  = trainingConfig.eventDate || new Date().toISOString().slice(0,10);
+    tcUpdateBadge();
+    tcRenderShooterSelector();
+}
+
+function tcSave() {
+    trainingConfig.unitId    = document.getElementById('tc-unit-id').value.trim();
+    trainingConfig.eventName = document.getElementById('tc-event-name').value.trim();
+    trainingConfig.eventDate = document.getElementById('tc-event-date').value;
+    localStorage.setItem(TC_KEY, JSON.stringify(trainingConfig));
+    tcUpdateBadge();
+    tcRenderShooterSelector();
+}
+
+function tcMarkDirty() { /* input changes — auto-save on QR gen */ }
+
+function tcToggle() {
+    const body = document.getElementById('tc-body');
+    const btn  = document.getElementById('tc-toggle-btn');
+    const open = body.style.display === 'none';
+    body.style.display = open ? 'block' : 'none';
+    btn.textContent = open ? '▲ 閉じる' : '▼ 展開';
+}
+
+function tcUpdateBadge() {
+    const badge = document.getElementById('tc-active-badge');
+    const active = trainingConfig.unitId || trainingConfig.eventName || trainingConfig.roster.length > 0;
+    badge.style.display = active ? 'inline' : 'none';
+    badge.textContent = active
+        ? (trainingConfig.eventName || trainingConfig.unitId || '設定済')
+        : '設定済';
+}
+
+function tcAddShooter(name='') {
+    trainingConfig.roster.push({ id: Date.now(), name });
+    tcRenderRoster();
+}
+
+function tcRemoveShooter(id) {
+    trainingConfig.roster = trainingConfig.roster.filter(r => r.id !== id);
+    tcRenderRoster();
+    tcRenderShooterSelector();
+}
+
+function tcRenderRoster() {
+    const list = document.getElementById('tc-roster-list');
+    if (!list) return;
+    list.innerHTML = trainingConfig.roster.length === 0
+        ? '<div style="font-size:0.68rem; color:#444; padding:6px 0;">名簿未登録 — 「追加」で入力</div>'
+        : trainingConfig.roster.map((r, i) => `
+            <div class="tc-roster-item">
+                <span class="tc-num">${i + 1}</span>
+                <input type="text" value="${r.name}" placeholder="氏名"
+                    oninput="trainingConfig.roster[${i}].name=this.value; tcRenderShooterSelector();">
+                <button class="tc-del-btn" onclick="tcRemoveShooter(${r.id})">×</button>
+            </div>`).join('');
+}
+
+// 名簿あり→セレクト、なし→テキスト
+function tcRenderShooterSelector() {
+    const wrap = document.getElementById('shooter-input-wrap');
+    if (!wrap) return;
+    const roster = trainingConfig.roster.filter(r => r.name.trim());
+    if (roster.length > 0) {
+        const current = document.getElementById('cfg-shooter')?.value || '';
+        wrap.innerHTML = `<select id="cfg-shooter" class="shooter-select">
+            ${roster.map(r => `<option value="${r.name}" ${r.name === current ? 'selected' : ''}>${r.name}</option>`).join('')}
+        </select>`;
+    } else {
+        const current = document.getElementById('cfg-shooter')?.value || 'OPERATOR-01';
+        wrap.innerHTML = `<input type="text" id="cfg-shooter" value="${current}"
+            style="width:100%; background:var(--input-bg); color:var(--input-text); border:none;
+                   padding:8px 10px; border-radius:4px; font-size:0.85rem;
+                   font-family:'Barlow Condensed',sans-serif; font-weight:700;">`;
+    }
+}
+
+// 複数行テキストから名簿を一括インポート
+function tcImportRoster() {
+    const text = prompt('氏名を改行区切りで貼り付けてください（既存名簿に追加）:');
+    if (!text) return;
+    const names = text.split(/[\n,、，]/).map(s => s.trim()).filter(Boolean);
+    names.forEach(n => trainingConfig.roster.push({ id: Date.now() + Math.random(), name: n }));
+    tcRenderRoster();
+    tcRenderShooterSelector();
+}
+
+// 保存 & QR生成
+function tcSaveAndGenQR() {
+    tcSave();
+    const cfg = { ...trainingConfig };
+    const json = JSON.stringify(cfg);
+    // URL方式：iOSカメラが自動でSafariを開く
+    const baseUrl = window.location.origin + window.location.pathname;
+    const encoded = btoa(unescape(encodeURIComponent(json)));
+    const url = baseUrl + '#tc=' + encoded;
+
+    const wrap = document.getElementById('tc-qr-canvas-wrap');
+    wrap.innerHTML = '';
+    const warn = document.getElementById('tc-qr-size-warn');
+    warn.style.display = url.length > 1200 ? 'block' : 'none';
+
+    if (typeof QRCode !== 'undefined') {
+        new QRCode(wrap, {
+            text: url,
+            width: 220, height: 220,
+            correctLevel: QRCode.CorrectLevel.M
+        });
+    } else {
+        wrap.innerHTML = '<div style="color:#c00;font-size:0.7rem;">QRライブラリ読み込み中... 再試行してください</div>';
+    }
+    const area = document.getElementById('tc-qr-area');
+    area.style.display = 'flex';
+}
+
+// AirDrop用JSONエクスポート
+function tcExportJSON() {
+    tcSave();
+    const json = JSON.stringify(trainingConfig, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const file = new File([blob], `MaLI_Config_${trainingConfig.eventDate || 'config'}.json`, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: 'MaLI Training Config' });
+    } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = file.name;
+        a.click();
+    }
+}
+
+// URL hashからTraining Configを検出・適用
+function tcDetectFromURL() {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#tc=')) return;
+    try {
+        const encoded = hash.slice(4);
+        const json = decodeURIComponent(escape(atob(encoded)));
+        const cfg = JSON.parse(json);
+        const msg = `Training Configを受信しました。\n\n`
+            + `部隊ID: ${cfg.unitId || '—'}\n`
+            + `訓練名: ${cfg.eventName || '—'}\n`
+            + `訓練日: ${cfg.eventDate || '—'}\n`
+            + `名簿: ${cfg.roster?.length || 0}名\n\n`
+            + `適用しますか？`;
+        if (confirm(msg)) {
+            trainingConfig = cfg;
+            localStorage.setItem(TC_KEY, JSON.stringify(cfg));
+            tcLoad();
+            // URLのhashを消す
+            history.replaceState(null, '', window.location.pathname);
+            alert('Training Configを適用しました。');
+        }
+    } catch (e) {
+        console.warn('TC decode error:', e);
+    }
+}
+
+// JSONファイルからTraining Configをインポート
+function tcImportFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const cfg = JSON.parse(e.target.result);
+            if (confirm(`Training Configを適用しますか？\n訓練名: ${cfg.eventName || '—'} / ${cfg.roster?.length || 0}名`)) {
+                trainingConfig = cfg;
+                localStorage.setItem(TC_KEY, JSON.stringify(cfg));
+                tcLoad();
+                alert('適用しました。');
+            }
+        } catch { alert('設定ファイルの読み込みに失敗しました。'); }
+    };
+    reader.readAsText(file);
+}
 
 // ── Action Timing (hold-to-time) ──
 let actionTimings = [];        // [{type:'reload'|'malfunction', startT, duration}]
@@ -776,7 +1069,7 @@ function applyPreset(key) {
     document.getElementById('cfg-target-split').value   = p.targetSplit;
     document.getElementById('cfg-target-reload').value  = p.targetReload || 0;
     document.getElementById('cfg-reload-at').value      = p.reloadAt || 0;
-    document.getElementById('cfg-target-malfunction').value = p.targetMalfunction || 5.0;
+    document.getElementById('cfg-target-malfunction').value = p.targetMalfunction || 3.0;
     buildTargetRangeList(p.defaultRanges, p.defaultTargetNums || null);
     updateManualMax();
 }
@@ -1584,6 +1877,19 @@ function getGrade(actual, goal, isLowerBetter = true) {
 /* ═══════════════════════════════════════════
    ASSESSMENT
 ═══════════════════════════════════════════ */
+
+// アクションタイミング期間を時間区間から除外するヘルパー
+// interval [t0, t1] から actionTimings の重複期間を差し引いた純粋な時間を返す
+function subtractActionOverlap(t0, t1, timings) {
+    let totalOverlap = 0;
+    for (const at of timings) {
+        const atStart = at.startT;
+        const atEnd   = at.startT + at.duration;
+        const overlap = Math.min(t1, atEnd) - Math.max(t0, atStart);
+        if (overlap > 0) totalOverlap += overlap;
+    }
+    return Math.max(0, (t1 - t0) - totalOverlap);
+}
 function generateAssessment() {
     const area = document.getElementById('assessment-area');
     area.innerHTML = ""; area.style.display = 'block';
@@ -1597,7 +1903,7 @@ function generateAssessment() {
         split: parseFloat(document.getElementById('cfg-target-split').value),
         reload: parseFloat(document.getElementById('cfg-target-reload').value) || 0,
         reloadAt: parseInt(document.getElementById('cfg-reload-at').value) || 0,
-        malfunctionGoal: parseFloat(document.getElementById('cfg-target-malfunction').value) || 5.0,
+        malfunctionGoal: parseFloat(document.getElementById('cfg-target-malfunction').value) || 3.0,
     };
 
     // ── タイミング計算 ──
@@ -1612,11 +1918,17 @@ function generateAssessment() {
         : 0;
     const reloadTime = directReloadTime !== null ? directReloadTime : calcReloadTime;
     const reloadMeasured = directReloadTime !== null; // flag: direct vs calculated
+
+    // アクションタイミング期間（弾倉交換・弾づまり対処）を射撃間隔から除外
     let splits = [];
     for (let i = 1; i < shotTimes.length; i++) {
         if (cfg.reloadAt > 0 && i === cfg.reloadAt)     continue;
         if (cfg.reloadAt > 0 && i === cfg.reloadAt + 1) continue;
-        splits.push(shotTimes[i] - shotTimes[i - 1]);
+        const t0 = shotTimes[i - 1];
+        const t1 = shotTimes[i];
+        // reloadAt推定方式の場合は弾倉交換期間も除外対象、実測の場合も含む
+        const netSplit = subtractActionOverlap(t0, t1, actionTimings);
+        splits.push(netSplit);
     }
     const avgSplit = splits.length > 0 ? splits.reduce((a, b) => a + b, 0) / splits.length : 0;
     const reloadFirstShot = (cfg.reloadAt > 0 && shotTimes[cfg.reloadAt + 1] != null && shotTimes[cfg.reloadAt] != null)
@@ -1679,10 +1991,15 @@ function generateAssessment() {
 
     const controlHtml = (() => {
         // Malfunction section (common to all scenarios)
+        const malfGoal = cfg.malfunctionGoal;
+        const malfThresh = `<div style="font-size:0.62rem; color:#555; font-family:monospace; margin-top:3px; line-height:1.6;">
+            目標: ${malfGoal.toFixed(1)}s &nbsp;|&nbsp; A≤${(malfGoal*0.85).toFixed(1)}s &nbsp; B≤${(malfGoal*1.15).toFixed(1)}s &nbsp; C≤${(malfGoal*1.40).toFixed(1)}s &nbsp; D>${(malfGoal*1.40).toFixed(1)}s
+        </div>`;
         const malfHtml = finalStats.control.malfunction
             ? `<div class="eval-group" style="margin-top:8px;">
                 <span class="eval-group-title">【制御 / Control】弾づまり対処</span>
                 ${createDetailRow("平均排除時間 (" + finalStats.control.malfunction.count + "回)", finalStats.control.malfunction, "s")}
+                ${malfThresh}
                </div>` : '';
 
         if (stype === 'posture') {
@@ -1830,10 +2147,13 @@ function generateAssessment() {
     })();
 
     // ── 速度・精度の表示 ──
+    const splitLabel = actionTimings.length > 0
+        ? `平均射撃間隔 <span style="font-size:0.6rem;color:#555;">(アクション除外済)</span>`
+        : `平均射撃間隔`;
     const speedHtml = `
     <div class="eval-group">
         <span class="eval-group-title">【速度 / Speed】</span>
-        ${createDetailRow("平均射撃間隔", finalStats.speed.split, "s")}
+        ${createDetailRow(splitLabel, finalStats.speed.split, "s")}
         ${createDetailRow("射撃合計時間", finalStats.speed.total, "s")}
     </div>`;
 
@@ -2527,6 +2847,10 @@ function saveSession() {
     const session = {
         id: Date.now(),
         shooter: document.getElementById('cfg-shooter').value,
+        // Training Config fields
+        unitId:    trainingConfig.unitId    || '',
+        eventName: trainingConfig.eventName || '',
+        eventDate: trainingConfig.eventDate || new Date().toISOString().slice(0,10),
         range: getRangeString(),
         rangeArr: getRangeArray(),
         preset: currentPreset,
@@ -2539,7 +2863,7 @@ function saveSession() {
         actionTimings: [...actionTimings]
     };
     sessions.unshift(session);
-    if (sessions.length > 20) sessions.splice(20);
+    if (sessions.length > 200) sessions.splice(200);
     localStorage.setItem('mali_sessions', JSON.stringify(sessions));
     alert('セッションを保存しました');
 }
@@ -3570,6 +3894,11 @@ function sessionToCSVRow(s) {
     const SLABEL = { posture:'至近射撃(姿勢変換)', suppress_day:'制圧致命(昼間)', suppress_night:'制圧致命(夜間)', custom:'カスタム' };
 
     const vals = [
+        // Training Config fields
+        s.unitId    || '',
+        s.eventName || '',
+        s.eventDate || '',
+        // Session fields
         s.timestamp,
         s.shooter,
         SLABEL[stype] || stype,
@@ -3608,6 +3937,7 @@ function exportSessionCSV(id) {
     const s = getSessions().find(s => s.id === id);
     if (!s) return;
     const headers = [
+        'UnitID','EventName','EventDate',
         'Timestamp','ShooterID','ScenarioType','TotalShots','Hits',
         'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
         'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
@@ -3639,6 +3969,7 @@ function exportSelectedCSV() {
     // 最大弾数に合わせてヘッダーを動的生成
     const maxShots = Math.max(...sessions.map(s => s.shotTimes?.length || 0));
     const headers = [
+        'UnitID','EventName','EventDate',
         'Timestamp','ShooterID','ScenarioType','TotalShots','Hits',
         'AvgSplit_s','Split_Grade','TotalTime_s','TotalTime_Grade',
         'Hits_Count','Hits_Grade','MaxGrouping_cm','Grouping_Grade',
@@ -3660,8 +3991,117 @@ function exportSelectedCSV() {
 }
 
 /* ═══════════════════════════════════════════
-   カスタムシナリオ保存・読込
+   JSON書き出し（AirDrop対応）＆ マージインポート
 ═══════════════════════════════════════════ */
+
+// 選択セッションをJSONで書き出し（AirDrop / ダウンロード）
+function exportSelectedJSON() {
+    const checked = [...document.querySelectorAll('#history-list input[type=checkbox]:checked')];
+    const allSessions = getSessions();
+
+    // 未選択なら全件を対象にするか確認
+    let sessions;
+    if (!checked.length) {
+        if (!confirm(`チェックなし — 全${allSessions.length}件を書き出しますか？`)) return;
+        sessions = allSessions;
+    } else {
+        const ids = new Set(checked.map(c => parseInt(c.id.replace('hchk-', ''))));
+        sessions = allSessions.filter(s => ids.has(s.id));
+    }
+    if (!sessions.length) return;
+
+    const payload = {
+        appVersion: 'MaLI ver64',
+        exportedAt: new Date().toISOString(),
+        deviceInfo: navigator.userAgent,
+        trainingConfig: { ...trainingConfig },
+        sessions
+    };
+
+    const json = JSON.stringify(payload);
+    const blob = new Blob([json], { type: 'application/json' });
+    const now = new Date().toLocaleDateString('ja-JP').replace(/\//g, '-');
+    const eventTag = trainingConfig.eventName
+        ? trainingConfig.eventName.replace(/\s/g, '_')
+        : 'sessions';
+    const fileName = `MaLI_${eventTag}_${now}.json`;
+    const file = new File([blob], fileName, { type: 'application/json' });
+
+    // AirDrop（Web Share API）対応 → 非対応ならダウンロード
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+            files: [file],
+            title: `MaLI セッションデータ（${sessions.length}件）`,
+        }).catch(() => {});   // キャンセル時はエラーにしない
+    } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+    }
+}
+
+// JSONマージインポート（複数ファイル対応・セッションIDで重複排除）
+function importMergeJSON(input) {
+    const files = [...input.files];
+    if (!files.length) return;
+
+    const existing = getSessions();
+    const existingIds = new Set(existing.map(s => s.id));
+
+    let added = 0, duplicates = 0, errors = 0;
+    let pending = files.length;
+
+    const finalize = () => {
+        if (--pending > 0) return;
+        // 処理完了
+        const msg = `マージ完了\n\n追加: ${added}件\n重複スキップ: ${duplicates}件`
+            + (errors > 0 ? `\nエラー: ${errors}ファイル` : '');
+        alert(msg);
+        renderHistory();
+        input.value = '';   // 同ファイルの再選択を可能にする
+    };
+
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const payload = JSON.parse(e.target.result);
+
+                // 配列直接 or {sessions:[...]} 形式の両方に対応
+                const incoming = Array.isArray(payload)
+                    ? payload
+                    : (payload.sessions || []);
+
+                const current = getSessions();
+                const currentIds = new Set(current.map(s => s.id));
+
+                incoming.forEach(s => {
+                    if (!s || !s.id) return;
+                    if (currentIds.has(s.id)) {
+                        duplicates++;
+                    } else {
+                        current.push(s);
+                        currentIds.add(s.id);
+                        added++;
+                    }
+                });
+
+                // 日時降順でソートして保存（上限200件）
+                current.sort((a, b) => b.id - a.id);
+                if (current.length > 200) current.splice(200);
+                localStorage.setItem('mali_sessions', JSON.stringify(current));
+
+            } catch (err) {
+                console.error('JSON merge error:', file.name, err);
+                errors++;
+            }
+            finalize();
+        };
+        reader.onerror = () => { errors++; finalize(); };
+        reader.readAsText(file);
+    });
+}
 const CUSTOM_SCENARIO_KEY = 'mali_custom_scenarios';
 
 function getCustomScenarios() {
@@ -3704,7 +4144,7 @@ function saveCustomScenario() {
         targetFirst:   parseFloat(document.getElementById('cfg-target-first').value)  || 1.5,
         targetSplit:   parseFloat(document.getElementById('cfg-target-split').value)  || 0.5,
         targetReload:  parseFloat(document.getElementById('cfg-target-reload').value) || 0,
-        targetMalfunction: parseFloat(document.getElementById('cfg-target-malfunction').value) || 5.0,
+        targetMalfunction: parseFloat(document.getElementById('cfg-target-malfunction').value) || 3.0,
         reloadAt:      parseInt(document.getElementById('cfg-reload-at').value)       || 0,
         defaultRanges:      rangeInputs,
         defaultTargetNums:  tSelects,
@@ -3752,7 +4192,7 @@ function loadCustomScenario(idxStr) {
     document.getElementById('cfg-target-first').value      = s.targetFirst;
     document.getElementById('cfg-target-split').value      = s.targetSplit;
     document.getElementById('cfg-target-reload').value     = s.targetReload || 0;
-    document.getElementById('cfg-target-malfunction').value = s.targetMalfunction || 5.0;
+    document.getElementById('cfg-target-malfunction').value = s.targetMalfunction || 3.0;
     document.getElementById('cfg-reload-at').value         = s.reloadAt    || 0;
 
     buildTargetRangeList(s.defaultRanges, s.defaultTargetNums);
@@ -4013,6 +4453,16 @@ function exportFullCSV() {
 /* ═══════════════════════════════════════════
    START BUTTON
 ═══════════════════════════════════════════ */
+
+// 初期化
+(function init() {
+    tcLoad();
+    tcDetectFromURL();
+    // 訓練日のデフォルトを今日に設定
+    const dateEl = document.getElementById('tc-event-date');
+    if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+})();
+
 document.getElementById('startBtn').onclick = async () => {
     const btn = document.getElementById('startBtn');
     btn.disabled = true;
