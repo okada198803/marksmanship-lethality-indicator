@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver64 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver65 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -279,7 +279,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver64</h1>
+    <h1 class="app-title-main">MaLI ver65</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -408,7 +408,7 @@
             <label>射手</label>
             <div id="shooter-input-wrap">
                 <!-- 名簿なし: テキスト入力 / 名簿あり: セレクト -->
-                <input type="text" id="cfg-shooter" value="OPERATOR-01" style="width:100%; background:var(--input-bg); color:var(--input-text); border:none; padding:8px 10px; border-radius:4px; font-size:0.85rem; font-family:'Barlow Condensed',sans-serif; font-weight:700;">
+                <input type="text" id="cfg-shooter" value="OPERATOR-01" oninput="updateSelfRefLabel()" style="width:100%; background:var(--input-bg); color:var(--input-text); border:none; padding:8px 10px; border-radius:4px; font-size:0.85rem; font-family:'Barlow Condensed',sans-serif; font-weight:700;">
             </div>
         </div>
         <div></div>
@@ -450,6 +450,26 @@
                 リロード直後の誤検知防止。リロード動作中に反応する場合は値を大きくしてください（推奨 2.0〜4.0s）
             </span>
         </div>
+        <div style="margin-top:10px; border-top:1px solid #1a1a1a; padding-top:8px;">
+            <label style="font-size:0.7rem; color:#888; display:flex; align-items:center; gap:6px; cursor:pointer; margin:0;">
+                <input type="checkbox" id="chk-discrim" checked
+                    style="width:14px; height:14px; accent-color:var(--primary); cursor:pointer;">
+                他者の発射を音量で自動除外（自分の発射を基準）
+            </label>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                <label style="margin:0; white-space:nowrap; font-size:0.7rem;">除外ライン: 基準の <span id="other-ratio-val">50</span>% 未満</label>
+                <input type="range" id="other-ratio" min="20" max="90" step="5" value="50" style="flex:1; min-width:120px;"
+                       oninput="onOtherRatioInput(this.value)">
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
+                <span style="font-size:0.62rem; color:#555;">自己基準: <span id="self-ref-label">未登録</span></span>
+                <button onclick="clearSelfRef()"
+                    style="background:none; border:1px solid #333; color:#777; padding:2px 8px; border-radius:3px; font-size:0.62rem; cursor:pointer;">基準リセット</button>
+            </div>
+            <div style="font-size:0.6rem; color:#444; margin-top:4px; line-height:1.5;">
+                スマホのマイクはモノラルで方向は取れないため、距離による音量差と波形の鋭さで判別します。確定した射撃の音量が次回以降の基準になります。
+            </div>
+        </div>
         <canvas id="viz"></canvas>
     </div>
     <div id="timer-val">0.00</div>
@@ -461,6 +481,14 @@
             発数到達で自動終了
         </label>
         <span style="font-size:0.62rem; color:#444;">OFFにすると波形を取り続けます</span>
+    </div>
+    <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <label style="margin:0; font-size:0.7rem; white-space:nowrap;">開始方式:</label>
+        <select id="start-mode" onchange="try{localStorage.setItem('mali_start_mode',this.value)}catch(e){}"
+            style="background:var(--input-bg); color:var(--input-text); border:none; padding:6px 8px; border-radius:4px; font-size:0.78rem; font-family:'Barlow Condensed',sans-serif; font-weight:700;">
+            <option value="instant">押下で即スタート</option>
+            <option value="beep">ランダム待機＋ビープ</option>
+        </select>
     </div>
     <div style="margin-top: 10px; display:flex; gap:8px; flex-wrap:wrap;">
         <button id="startBtn" class="btn-main" style="flex:1;">START</button>
@@ -474,7 +502,18 @@
     <h2>波形レビュー（手動補正）</h2>
     <div style="font-size:0.68rem; color:#555; margin-bottom:10px; line-height:1.7;">
         射撃中の音響波形を確認し、ピークをタップして発射時刻を手動で追加・修正できます。<br>
-        自動検出結果に問題がなければ「自動検出結果で確定」を押してください。
+        自動検出結果に問題がなければ「自動判定のまま確定」を押してください。
+    </div>
+
+    <div style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:4px; padding:8px 10px; margin-bottom:10px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <label style="margin:0; font-size:0.7rem; white-space:nowrap;">他者除外ライン: 基準の <span id="other-ratio-val-review">50</span>% 未満</label>
+            <input type="range" id="other-ratio-review" min="20" max="90" step="5" value="50" style="flex:1; min-width:120px;"
+                   oninput="onOtherRatioInput(this.value)">
+        </div>
+        <div style="font-size:0.62rem; color:#555; margin-top:4px; line-height:1.6;">
+            水色の破線より低いピークは「他者の発射」として自動除外（グレー表示）。タップで採用／除外を切替できます。オレンジ＝音量は基準付近だが波形が鈍い（要確認）。
+        </div>
     </div>
 
     <!-- 波形キャンバス -->
@@ -482,7 +521,7 @@
         <canvas id="waveReviewCanvas" style="display:block; height:120px;"></canvas>
     </div>
     <div style="font-size:0.62rem; color:#444; margin-bottom:10px; font-family:monospace;">
-        タップ: 発射マーク追加 　マーク上タップ: 削除 　横スクロール: 波形移動
+        タップ: 発射マーク追加 　マーク上タップ: 採用／除外の切替 　横スクロール: 波形移動
     </div>
 
     <!-- 現在のショットタイムリスト -->
@@ -494,19 +533,47 @@
     <!-- 確定ボタン -->
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button onclick="confirmReviewedShots()" class="btn-main" style="flex:1; font-size:0.85rem;">
-            この内容で確定・解析へ進む
+            この内容で確定（記録を保存）
         </button>
         <button onclick="skipReviewAndConfirm()" class="btn-secondary" style="flex:1; font-size:0.75rem; color:#888;">
-            自動検出結果で確定
+            自動判定のまま確定
         </button>
+    </div>
+</div>
+
+<!-- ===== 記録保存完了 ===== -->
+<div id="record-done-area" style="display:none;" class="card">
+    <h2>記録を保存しました</h2>
+    <div id="record-done-summary" style="font-family:monospace; font-size:0.75rem; color:#aaa; line-height:1.8;"></div>
+    <div style="font-size:0.66rem; color:#555; margin-top:6px; line-height:1.6;">
+        的の採点は後でまとめて行えます（下の「採点待ち」から選択）。
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button onclick="nextEngagement()" class="btn-main" style="flex:1; font-size:0.9rem;">次の射撃へ（採点は後で）</button>
+        <button onclick="scoreNow()" class="btn-secondary" style="flex:1;">この射撃を今すぐ採点</button>
+    </div>
+</div>
+
+<!-- ===== 採点待ち ===== -->
+<div id="pending-card" style="display:none;" class="card">
+    <h2>採点待ち <span id="pending-count" style="color:#888; font-size:0.8rem;"></span></h2>
+    <div style="font-size:0.66rem; color:#555; margin-bottom:8px; line-height:1.6;">
+        射撃記録は保存済みです。的をまとめて撮影し、撮影順に各射撃へ割り当てて採点します（割当は画像ごとに修正可）。
+    </div>
+    <div id="pending-list"></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button onclick="pendingSelectAll(true)" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">全選択</button>
+        <button onclick="pendingSelectAll(false)" class="btn-secondary" style="font-size:0.72rem; padding:5px 10px;">全解除</button>
+        <button onclick="startBatchScoringFromChecked()" class="btn-main" style="flex:1; font-size:0.85rem; padding:10px;">選択分をまとめて採点</button>
     </div>
 </div>
 
 <div id="acquisition-area" style="display:none;" class="card">
     <h2>3. Target Analysis</h2>
+    <div id="scoring-queue-info" style="display:none; background:#0a0a14; border:1px solid #1a1a3a; border-radius:4px; padding:10px; margin-bottom:10px;"></div>
 
     <!-- モード切り替え -->
-    <div class="preset-bar" style="margin-bottom:12px;">
+    <div class="preset-bar" id="analysis-mode-bar" style="margin-bottom:12px;">
         <button class="preset-btn" id="mode-btn-seal" onclick="setAnalysisMode('seal')">
             <span class="preset-name">シールあり</span>
             <span class="preset-desc">青色自動検出</span>
@@ -829,12 +896,12 @@ function tcRenderShooterSelector() {
     const roster = trainingConfig.roster.filter(r => r.name.trim());
     if (roster.length > 0) {
         const current = document.getElementById('cfg-shooter')?.value || '';
-        wrap.innerHTML = `<select id="cfg-shooter" class="shooter-select">
+        wrap.innerHTML = `<select id="cfg-shooter" class="shooter-select" onchange="updateSelfRefLabel()">
             ${roster.map(r => `<option value="${r.name}" ${r.name === current ? 'selected' : ''}>${r.name}</option>`).join('')}
         </select>`;
     } else {
         const current = document.getElementById('cfg-shooter')?.value || 'OPERATOR-01';
-        wrap.innerHTML = `<input type="text" id="cfg-shooter" value="${current}"
+        wrap.innerHTML = `<input type="text" id="cfg-shooter" value="${current}" oninput="updateSelfRefLabel()"
             style="width:100%; background:var(--input-bg); color:var(--input-text); border:none;
                    padding:8px 10px; border-radius:4px; font-size:0.85rem;
                    font-family:'Barlow Condensed',sans-serif; font-weight:700;">`;
@@ -957,6 +1024,23 @@ let waveBuffer = [];           // [{t, rms}] — 射撃中に蓄積
 let uploadedImageCount = 0;    // アップロード済み画像枚数（T番号の連番管理）
 let waveSampleInterval = null;
 let reviewShotTimes = [];      // 手動レビュー用の発射時刻配列（autoまたは手動）
+
+// ── 他者発射の判別（自己基準＋波形形状） ──
+let rawDetections = [];        // 射撃中の全検出 [{t, peak, sharp, decay, cls, manual}]
+let trackingDet = null;        // ピーク測定待ちの検出
+const DET_FINALIZE_SEC = 0.08; // 検出からこの時間でピークを確定し自己/他者を判定
+let reviewDets = [];           // 波形レビュー用 [{..., force:null|'included'|'excluded'}]
+let reviewRef = null;          // レビュー時の基準 {peak, sharp, source}
+let selfRefMap = {};           // 射手別の自己基準 {name:{peak, sharp}}
+let micStream = null;          // マイクストリーム（再利用）
+
+// ── 採点の分離（射撃記録 → 採点待ち → 一括採点） ──
+let scoringQueue = [];         // [{id, rec, nTargets, result, saved}]
+let scoringIdx = -1;
+let scoringTarget = null;      // 採点中セッションID
+let liveCfgBackup = null;      // 採点前の設定退避
+let scoringSaveLockUntil = 0;
+let lastPendingId = null;      // 直前に保存した採点待ちID
 
 // 高精度検出用バッファ
 const DETECT_BUFFER = 4;
@@ -1181,7 +1265,13 @@ function getRangeString() {
 async function initAudio() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') await audioCtx.resume();
+    // 既存の生きたストリームがあれば再利用（即スタート時の遅延と多重接続を避ける）
+    if (micStream && analyser && micStream.getAudioTracks().some(t => t.readyState === 'live')) {
+        energyHistory.fill(0);
+        return;
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    micStream = stream;
     const source = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 512; // 高精度
@@ -1235,15 +1325,162 @@ function renderViz() {
     if (isRunning) checkShot();
 }
 
+/* ═══════════════════════════════════════════
+   他者発射の判別（自己基準＋波形形状）
+   ※ スマホのマイクはモノラルで「方向」は取れないため、
+     距離による音量差（自己基準比）と波形の鋭さで自分の発射を推定する
+═══════════════════════════════════════════ */
+function medianOf(arr) {
+    if (!arr.length) return 0;
+    const s = [...arr].sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function getOtherRatio() {
+    const v = parseFloat(document.getElementById('other-ratio')?.value);
+    return (Number.isFinite(v) ? v : 50) / 100;
+}
+function discrimEnabled() { return document.getElementById('chk-discrim')?.checked !== false; }
+function currentShooterName() { return document.getElementById('cfg-shooter')?.value || ''; }
+function loadSelfRef() {
+    try { selfRefMap = JSON.parse(localStorage.getItem('mali_self_ref') || '{}') || {}; } catch (e) { selfRefMap = {}; }
+}
+function persistSelfRef() { try { localStorage.setItem('mali_self_ref', JSON.stringify(selfRefMap)); } catch (e) {} }
+function getSelfRef() { return selfRefMap[currentShooterName()] || null; }
+function updateSelfRefLabel() {
+    const el = document.getElementById('self-ref-label');
+    if (!el) return;
+    const r = getSelfRef();
+    el.textContent = r ? '登録済み（ピーク ' + r.peak.toFixed(2) + '）' : '未登録（初弾／上位発の中央値で自動判定）';
+}
+function clearSelfRef() {
+    delete selfRefMap[currentShooterName()];
+    persistSelfRef();
+    updateSelfRefLabel();
+    if (reviewVisible()) { reclassifyReview(); renderWaveReview(); }
+}
+function onOtherRatioInput(val) {
+    ['other-ratio', 'other-ratio-review'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.value !== String(val)) el.value = val;
+    });
+    ['other-ratio-val', 'other-ratio-val-review'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    });
+    try { localStorage.setItem('mali_other_ratio', String(val)); } catch (e) {}
+    if (reviewVisible()) { reclassifyReview(); renderWaveReview(); }
+}
+
+// waveBuffer 内で time 以上となる最初のインデックス
+function waveIdxAt(t) {
+    let lo = 0, hi = waveBuffer.length;
+    while (lo < hi) {
+        const m = (lo + hi) >> 1;
+        if (waveBuffer[m].t < t) lo = m + 1; else hi = m;
+    }
+    return lo;
+}
+
+// 検出時刻まわりのピーク音量・鋭さ・減衰を測定
+function measureDetection(t) {
+    if (!waveBuffer.length) return null;
+    const lo = t - 0.02, hi = t + 0.10;
+    let peak = 0, peakT = t;
+    for (let i = waveIdxAt(lo); i < waveBuffer.length; i++) {
+        const s = waveBuffer[i];
+        if (s.t > hi) break;
+        if (s.rms > peak) { peak = s.rms; peakT = s.t; }
+    }
+    if (peak <= 0) return null;
+    // 減衰: ピークから 50% に落ちるまでの時間（残響が多いほど長い）
+    let decay = 0.3;
+    for (let i = waveIdxAt(peakT); i < waveBuffer.length; i++) {
+        const s = waveBuffer[i];
+        if (s.t <= peakT) continue;
+        if (s.rms < peak * 0.5) { decay = s.t - peakT; break; }
+        if (s.t - peakT > 0.3) break;
+    }
+    // 鋭さ: ピーク ÷ 直後(20〜150ms)の平均（インパルス性が高いほど大きい）
+    let sum = 0, n = 0;
+    for (let i = waveIdxAt(peakT + 0.02); i < waveBuffer.length; i++) {
+        const s = waveBuffer[i];
+        if (s.t > peakT + 0.15) break;
+        sum += s.rms; n++;
+    }
+    const tail = n ? sum / n : 0;
+    const sharp = tail > 0.001 ? Math.min(20, peak / tail) : 20;
+    return { peak, peakT, decay, sharp };
+}
+
+// 射撃中の簡易判定（ピーク音量のみ）
+function classifyLive(det) {
+    if (!discrimEnabled()) return 'own';
+    const base = getSelfRef();
+    let refPeak;
+    if (base && base.peak > 0) {
+        refPeak = base.peak;
+    } else {
+        const owns = rawDetections.filter(d => d !== det && d.cls === 'own' && d.peak > 0);
+        refPeak = owns.length ? medianOf(owns.map(d => d.peak)) : det.peak;
+    }
+    return det.peak < refPeak * getOtherRatio() ? 'other' : 'own';
+}
+
+function appendOtherBadge(t) {
+    const log = document.getElementById('shot-log');
+    if (!log) return;
+    const b = document.createElement('span');
+    b.className = 'shot-badge';
+    b.style.cssText = 'color:#666; border-color:#333;';
+    b.textContent = '他 ' + t.toFixed(2) + 's';
+    log.appendChild(b);
+}
+
+function detReset() {
+    rawDetections = [];
+    trackingDet = null;
+    reviewDets = [];
+    reviewRef = null;
+}
+
+// 検出から一定時間後にピークを確定し、自己の発射ならタイム列へ追加
+function finalizeDetection(det, noAuto) {
+    const m = measureDetection(det.t);
+    if (m) { det.peak = Math.max(det.peak, m.peak); det.sharp = m.sharp; det.decay = m.decay; }
+    det.cls = classifyLive(det);
+    if (det.cls === 'other') { appendOtherBadge(det.t); return; }
+    const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
+    shotTimes.push(det.t);
+    updateShotLog(det.t, reloadAt);
+    const tv = document.getElementById('timer-val');
+    tv.innerText = det.t.toFixed(2);
+    tv.classList.add('shot-flash');
+    setTimeout(() => tv.classList.remove('shot-flash'), 120);
+    if (noAuto) return;
+    const autoFinish = document.getElementById('chk-auto-finish')?.checked !== false;
+    if (autoFinish && shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
+}
+
 function checkShot() {
     const now = (performance.now() - startTime) / 1000;
     if (now < 0.10) return;
-    
+
     const rms = getRMSEnergy();
     energyHistory[energyIdx % DETECT_BUFFER] = rms;
     energyIdx++;
 
-    // 動的閾値: 直前の平均に対する急上昇を検出
+    // ピーク測定待ちの検出を更新・確定
+    if (trackingDet) {
+        trackingDet.peak = Math.max(trackingDet.peak, rms);
+        if (now - trackingDet.t >= DET_FINALIZE_SEC) {
+            const d = trackingDet;
+            trackingDet = null;
+            finalizeDetection(d, false);
+            if (!isRunning) return;   // 自動終了した
+        }
+    }
+
     const th = parseFloat(document.getElementById('mic-sens').value);
     const reloadAt = parseInt(document.getElementById('cfg-reload-at').value);
     const reloadDeadTime = parseFloat(document.getElementById('reload-dead-time').value);
@@ -1251,14 +1488,9 @@ function checkShot() {
 
     if (rms > th && (now - lastShotTime) > deadTime) {
         lastShotTime = now;
-        shotTimes.push(now);
-        updateShotLog(now, reloadAt);
-        const tv = document.getElementById('timer-val');
-        tv.innerText = now.toFixed(2);
-        tv.classList.add('shot-flash');
-        setTimeout(() => tv.classList.remove('shot-flash'), 120);
-        const autoFinish = document.getElementById('chk-auto-finish')?.checked !== false;
-        if (autoFinish && shotTimes.length >= parseInt(document.getElementById('cfg-total-shots').value)) finishEngagement();
+        const det = { t: now, peak: rms, sharp: 0, decay: 0, cls: 'own', manual: false };
+        rawDetections.push(det);
+        trackingDet = det;   // 80ms後にピークを確定して自己/他者を判定
     }
 }
 
@@ -1292,8 +1524,9 @@ function finishEngagement() {
     btn.innerText = "DONE";
     btn.classList.add('done');
     document.getElementById('finishBtn').style.display = 'none';
-    // 波形レビューパネルを表示
-    reviewShotTimes = [...shotTimes];
+    // 波形レビューパネルを表示（全検出から自己/他者を再判定）
+    if (trackingDet) { const d = trackingDet; trackingDet = null; finalizeDetection(d, true); }
+    buildReviewState();
     openWaveformReview();
 }
 
@@ -1386,14 +1619,14 @@ let analysisMode = 'manual'; // 'seal' | 'manual'
 =========================================== */
 let manualSessions = [];
 
-function initManualTarget(wrapper, file, targetIdx, rangeM) {
+function initManualTarget(wrapper, file, targetIdx, rangeM, labelText) {
     const objUrl = URL.createObjectURL(file);
     const session = { wrapper, imgSrc: objUrl, imgW:0, imgH:0, rangeM, marks:[], zoom:1, panX:0, panY:0, targetIdx };
     manualSessions.push(session);
 
     const header = document.createElement('div');
     header.style.cssText = 'background:#111; padding:8px 12px; font-family:monospace; font-size:0.75rem; color:#60a0ff; display:flex; justify-content:space-between; align-items:center;';
-    header.innerHTML = '<span>T' + (targetIdx+1) + ' — ' + rangeM + 'm</span><span id="mark-count-' + targetIdx + '">0発マーク済み</span>';
+    header.innerHTML = '<span>' + (labelText || ('T' + (targetIdx+1))) + ' — ' + rangeM + 'm</span><span id="mark-count-' + targetIdx + '">0発マーク済み</span>';
     wrapper.appendChild(header);
 
     const cvs = document.createElement('canvas');
@@ -1587,6 +1820,7 @@ function clearAllManualMarks() {
 // runBlueSuggest: 削除済み
 
 function confirmManualMarks() {
+    if (scoringQueue.length) { confirmBatchMarks(); return; }
     if (manualSessions.length === 0) { alert('先に写真をアップロードしてください。'); return; }
     cumulativeHits = 0; individualGroupings = [];
     // 画像カードのセレクタから使用中の最大ターゲット番号を取得
@@ -1697,10 +1931,11 @@ async function processMultipleImages(input, append = false) {
         const imgGlobalIdx = uploadedImageCount;  // 通算画像番号（0-based）
         uploadedImageCount++;
 
-        // アップロード順に T1, T2, T3… を自動割り当て
-        const autoTNum = imgGlobalIdx + 1;  // 1-based
+        // 採点キューがあれば撮影順に「セッション＋ターゲット」へ自動割当、なければ T1, T2, T3… を連番
+        const asg = scoringQueue.length ? assignImageToQueue(imgGlobalIdx) : null;
+        const autoTNum = asg ? asg.tNum : imgGlobalIdx + 1;  // 1-based
         // そのターゲット番号に割り当てられた最初のShotの射距離を使用
-        const rangeM   = getRangeForTarget(autoTNum);
+        const rangeM   = asg ? rangeForTargetSnap(scoringQueue[asg.k].rec.cfgSnap, autoTNum) : getRangeForTarget(autoTNum);
 
         const wrapper = document.createElement('div');
         wrapper.className = "canvas-container";
@@ -1713,18 +1948,27 @@ async function processMultipleImages(input, append = false) {
         const tOptions = [1,2,3,4,5].map(n =>
             `<option value="${n}" ${n === autoTNum ? 'selected' : ''}>T${n}</option>`
         ).join('');
+        const sessSelHtml = asg
+            ? `<select class="img-session-select" data-img-idx="${imgGlobalIdx}"
+                style="background:#1a1a1a; border:1px solid #444; color:#60a0ff; padding:3px 6px; max-width:48%;
+                       border-radius:4px; font-size:0.72rem; font-family:monospace; font-weight:bold; cursor:pointer;"
+                onchange="onImgSessionChange(this)">
+                ${scoringQueue.map((q, k) => `<option value="${q.id}" ${k === asg.k ? 'selected' : ''}>${k + 1}.${pEsc(q.rec.shooter)} ${pTime(q.rec.timestamp)}</option>`).join('')}
+            </select>`
+            : '';
         tHeader.innerHTML = `
+            ${sessSelHtml}
             <select class="img-target-select" data-img-idx="${imgGlobalIdx}"
                 style="background:#1a1a1a; border:1px solid #444; color:#ffcc00; padding:3px 6px;
                        border-radius:4px; font-size:0.72rem; font-family:monospace; font-weight:bold; cursor:pointer;"
                 onchange="onImgTargetChange(this)">
                 ${tOptions}
             </select>
-            <span style="color:#555;">画像 ${imgGlobalIdx + 1}  /  ${rangeM}m</span>`;
+            <span class="img-range-label" style="color:#555;">画像 ${imgGlobalIdx + 1}  /  ${rangeM}m</span>`;
         wrapper.appendChild(tHeader);
 
         if (analysisMode === 'manual') {
-            initManualTarget(wrapper, files[i], imgGlobalIdx, rangeM);
+            initManualTarget(wrapper, files[i], imgGlobalIdx, rangeM, asg ? ('T' + autoTNum) : null);
             container.appendChild(wrapper);
             continue;
         }
@@ -1761,6 +2005,9 @@ function onImgTargetChange(sel) {
     const tNum = parseInt(sel.value);
     const tColors = ['#ffcc00','#32d74b','#0099ff','#ff9500','#ff3b30'];
     sel.style.color = tColors[(tNum - 1) % tColors.length];
+    // 採点キュー中は射距離表示も更新
+    const sessSel = document.querySelector(`.img-session-select[data-img-idx="${sel.dataset.imgIdx}"]`);
+    if (sessSel) onImgSessionChange(sessSel);
 }
 
 /* ═══════════════════════════════════════════
@@ -2843,6 +3090,44 @@ function openCombatSimFromAssessment(shooter) {
    SESSION HISTORY (新機能)
 ═══════════════════════════════════════════ */
 function saveSession() {
+    if (performance.now() < scoringSaveLockUntil) return;   // 連打による次セッションの誤保存を防止
+
+    // 採点待ちセッションの採点結果を確定保存（射撃時の ID・射手・部隊情報を引き継ぐ）
+    if (scoringTarget != null) {
+        const q = scoringQueue.find(x => x.id === scoringTarget);
+        if (q) {
+            const miss = checklistMissing();
+            if (miss && !confirm(`未入力の項目があります（${miss}）。このまま保存しますか？`)) return;
+            const rec = q.rec;
+            const done = {
+                id: rec.id,
+                shooter: rec.shooter,
+                unitId: rec.unitId, eventName: rec.eventName, eventDate: rec.eventDate,
+                range: rec.range, rangeArr: rec.rangeArr,
+                preset: rec.preset,
+                scenarioType: finalStats ? finalStats.scenarioType : rec.scenarioType,
+                timestamp: rec.timestamp,
+                shotTimes: [...rec.shotTimes],
+                stats: JSON.parse(JSON.stringify(finalStats)),
+                groupings: [...individualGroupings],
+                hits: cumulativeHits,
+                actionTimings: (rec.actionTimings || []).map(a => ({ ...a })),
+                shotPeaks: rec.shotPeaks || [],
+                scoredAt: new Date().toLocaleString('ja-JP'),
+            };
+            const all = getSessions().filter(s => s.id !== done.id);
+            all.unshift(done);
+            if (all.length > 200) all.splice(200);
+            localStorage.setItem('mali_sessions', JSON.stringify(all));
+            setPending(getPending().filter(p => p.id !== rec.id));
+            q.saved = true;
+            scoringSaveLockUntil = performance.now() + 700;
+            scoringIdx++;
+            if (scoringIdx < scoringQueue.length) showWizardStep(); else finishScoring();
+            return;
+        }
+    }
+
     const sessions = getSessions();
     const session = {
         id: Date.now(),
@@ -3202,6 +3487,12 @@ function renderHistory() {
             </div>
         </div>`;
     }).join('');
+
+    const pn = getPending().length;
+    if (pn) {
+        el.insertAdjacentHTML('afterbegin',
+            `<div style="background:#0a0a14; border:1px solid #1a1a3a; border-radius:4px; padding:8px 10px; margin-bottom:8px; font-size:0.72rem; color:#60a0ff;">採点待ち ${pn}件（SESSIONタブで採点すると、ここに追加されます）</div>`);
+    }
 
     renderIntegratedEval(sessions);
 }
@@ -3678,26 +3969,128 @@ function renderWaveReview() {
     drawWaveReviewCanvas();
 }
 
+// ── レビュー用の判別状態 ──
+function isIncluded(d) {
+    if (d.force === 'included') return true;
+    if (d.force === 'excluded') return false;
+    return d.cls !== 'other';
+}
+
+// 基準: 登録済みの自己基準 > 上位N発(N=予定発射数)の中央値
+function computeReference(dets) {
+    const base = getSelfRef();
+    if (base && base.peak > 0) return { peak: base.peak, sharp: base.sharp || 0, source: 'baseline' };
+    if (!dets.length) return null;
+    const total = parseInt(document.getElementById('cfg-total-shots')?.value) || dets.length;
+    const top = [...dets].sort((a, b) => b.peak - a.peak).slice(0, Math.max(1, Math.min(total, dets.length)));
+    return { peak: medianOf(top.map(d => d.peak)), sharp: medianOf(top.map(d => d.sharp || 0)), source: 'auto' };
+}
+
+// own: 基準付近以上 / other: 基準×比率 未満 / uncertain: 境界域かつ波形が鈍い（採用だが要確認）
+function classifyDetections(dets, ref, ratio, enabled) {
+    dets.forEach(d => {
+        if (!enabled || !ref || !(ref.peak > 0)) { d.cls = 'own'; d.ratio = 1; return; }
+        const r = d.peak / ref.peak;
+        d.ratio = r;
+        if (r < ratio) d.cls = 'other';
+        else if (r < ratio + 0.25 && ref.sharp > 0 && d.sharp > 0 && d.sharp < ref.sharp * 0.7) d.cls = 'uncertain';
+        else d.cls = 'own';
+    });
+}
+
+function buildReviewState() {
+    reviewDets = rawDetections.map(d => ({ ...d, force: null }));
+    reclassifyReview();
+}
+
+function reclassifyReview() {
+    reviewDets.forEach(d => {
+        if (d.manual || d._measured) return;
+        const m = measureDetection(d.t);
+        if (m) { d.peak = Math.max(d.peak || 0, m.peak); d.sharp = m.sharp; d.decay = m.decay; }
+        d._measured = true;
+    });
+    const auto = reviewDets.filter(d => !d.manual);
+    const on = discrimEnabled();
+    reviewRef = on ? computeReference(auto) : null;
+    classifyDetections(auto, reviewRef, getOtherRatio(), on);
+    syncReviewShotTimes();
+}
+
+function syncReviewShotTimes() {
+    reviewDets.sort((a, b) => a.t - b.t);
+    reviewShotTimes = reviewDets.filter(isIncluded).map(d => d.t);
+}
+
+function reviewVisible() {
+    const a = document.getElementById('waveform-review-area');
+    return !!a && a.style.display !== 'none';
+}
+
+// 波形タップ: 既存マーク上なら採用/除外を切替、なければ手動で追加
+function reviewTapAt(t, radiusPx) {
+    const hit = reviewDets.find(d => Math.abs(d.t - t) * WAVE_PX_PER_SEC < radiusPx);
+    if (hit) {
+        if (isIncluded(hit)) {
+            if (hit.manual) reviewDets.splice(reviewDets.indexOf(hit), 1);
+            else hit.force = 'excluded';
+        } else {
+            hit.force = 'included';
+        }
+    } else {
+        const m = measureDetection(t) || {};
+        reviewDets.push({ t, peak: m.peak || 0, sharp: m.sharp || 0, decay: m.decay || 0,
+                          cls: 'own', force: 'included', manual: true, _measured: true });
+    }
+    syncReviewShotTimes();
+    renderWaveReview();
+}
+
 // ── ショットタイムリスト表示 ──
 function renderReviewShotList() {
     const el = document.getElementById('review-shot-list');
-    if (!reviewShotTimes.length) {
+    const inc = reviewDets.filter(isIncluded);
+    const exc = reviewDets.filter(d => !isIncluded(d));
+    if (!inc.length && !exc.length) {
         el.innerHTML = '<span style="color:#333; font-size:0.72rem;">発射タイムなし</span>';
         return;
     }
-    el.innerHTML = reviewShotTimes.map((t, i) =>
-        `<span onclick="removeReviewShot(${i})"
-            style="background:#1a1a1a; border:1px solid #333; color:#ffcc00;
+    const incHtml = inc.map((d, i) => {
+        const warn = d.cls === 'uncertain' && d.force !== 'included';
+        return `<span onclick="removeReviewShot(${i})"
+            style="background:#1a1a1a; border:1px solid ${warn ? '#ff9500' : '#333'}; color:${warn ? '#ff9500' : '#ffcc00'};
                    padding:4px 8px; border-radius:4px; font-family:monospace;
                    font-size:0.72rem; cursor:pointer; user-select:none;"
-            title="タップで削除">
-            #${i+1} ${t.toFixed(2)}s
+            title="タップで除外">
+            #${i+1} ${d.t.toFixed(2)}s${warn ? ' ?' : ''}
+        </span>`;
+    }).join('');
+    const excHtml = exc.map((d, i) =>
+        `<span onclick="restoreReviewShot(${i})"
+            style="background:#0d0d0d; border:1px dashed #444; color:#666;
+                   padding:4px 8px; border-radius:4px; font-family:monospace;
+                   font-size:0.72rem; cursor:pointer; user-select:none;"
+            title="タップで採用に戻す">
+            他 ${d.t.toFixed(2)}s
         </span>`
     ).join('');
+    el.innerHTML = incHtml + excHtml;
 }
 
 function removeReviewShot(idx) {
-    reviewShotTimes.splice(idx, 1);
+    const d = reviewDets.filter(isIncluded)[idx];
+    if (!d) return;
+    if (d.manual) reviewDets.splice(reviewDets.indexOf(d), 1);
+    else d.force = 'excluded';
+    syncReviewShotTimes();
+    renderWaveReview();
+}
+
+function restoreReviewShot(idx) {
+    const d = reviewDets.filter(x => !isIncluded(x))[idx];
+    if (!d) return;
+    d.force = 'included';
+    syncReviewShotTimes();
     renderWaveReview();
 }
 
@@ -3745,13 +4138,30 @@ function drawWaveReviewCanvas() {
     ctx.beginPath(); ctx.moveTo(0, thY); ctx.lineTo(W, thY); ctx.stroke();
     ctx.setLineDash([]);
 
-    // 発射マーカー
-    reviewShotTimes.forEach((t, i) => {
-        const x = t * WAVE_PX_PER_SEC;
-        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+    // 他者除外ライン（基準ピーク × 除外比率）
+    if (reviewRef && discrimEnabled()) {
+        const cutY = H - Math.min(1, reviewRef.peak * getOtherRatio()) * H;
+        ctx.strokeStyle = 'rgba(0,200,255,0.6)'; ctx.lineWidth = 1;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath(); ctx.moveTo(0, cutY); ctx.lineTo(W, cutY); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(0,200,255,0.8)'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+        ctx.fillText('他者除外ライン', 4, Math.max(22, cutY - 3));
+    }
+
+    // 発射マーカー（採用=黄 / 要確認=橙 / 除外=灰）
+    let shotNo = 0;
+    reviewDets.forEach(d => {
+        const x = d.t * WAVE_PX_PER_SEC;
+        const inc = isIncluded(d);
+        const warn = inc && d.cls === 'uncertain' && d.force !== 'included';
+        const color = inc ? (warn ? '#ff9500' : '#ffcc00') : '#666';
+        ctx.strokeStyle = color; ctx.lineWidth = inc ? 2 : 1;
+        ctx.setLineDash(inc ? (warn ? [5, 3] : []) : [3, 3]);
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-        ctx.fillText('#' + (i+1), x, H - 4);
+        ctx.setLineDash([]);
+        ctx.fillStyle = color; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(inc ? '#' + (++shotNo) + (warn ? '?' : '') : '他', x, H - 4);
     });
 
     // タッチ/クリックイベント（一度だけ登録）
@@ -3772,17 +4182,13 @@ function drawWaveReviewCanvas() {
         const TAP_MAX_DURATION = 1000; // 1秒未満ならタップとみなす
 
         // PC マウスクリック（スクロールなし）
+        // 現在の波形長（リスナーは初回描画時に1度だけ登録されるため毎回取得する）
+        const curMaxT = () => (waveBuffer.length ? waveBuffer[waveBuffer.length - 1].t : 0) + 0.5;
+
         cvs.addEventListener('click', (e) => {
             const t = getTimeFromEvent(e);
-            if (t < 0 || t > totalSec) return;
-            const hitIdx = reviewShotTimes.findIndex(st => Math.abs(st - t) * WAVE_PX_PER_SEC < hitRadius);
-            if (hitIdx !== -1) {
-                reviewShotTimes.splice(hitIdx, 1);
-            } else {
-                reviewShotTimes.push(t);
-                reviewShotTimes.sort((a, b) => a - b);
-            }
-            renderWaveReview();
+            if (t < 0 || t > curMaxT()) return;
+            reviewTapAt(t, hitRadius);
         });
 
         // タッチ開始: 位置と時刻を記録
@@ -3813,16 +4219,9 @@ function drawWaveReviewCanvas() {
             const touch = e.changedTouches[0];
             const xPx   = touch.clientX - rect.left;
             const t     = xPx / WAVE_PX_PER_SEC;
-            if (t < 0 || t > totalSec) return;
+            if (t < 0 || t > curMaxT()) return;
 
-            const hitIdx = reviewShotTimes.findIndex(st => Math.abs(st - t) * WAVE_PX_PER_SEC < hitRadius * 2);
-            if (hitIdx !== -1) {
-                reviewShotTimes.splice(hitIdx, 1);
-            } else {
-                reviewShotTimes.push(t);
-                reviewShotTimes.sort((a, b) => a - b);
-            }
-            renderWaveReview();
+            reviewTapAt(t, hitRadius * 2);
         }, { passive: false });
     }
 }
@@ -3835,8 +4234,6 @@ function confirmReviewedShots() {
     }
     shotTimes = [...reviewShotTimes];
     document.getElementById('waveform-review-area').style.display = 'none';
-    document.getElementById('acquisition-area').style.display = 'block';
-    document.getElementById('acquisition-area').scrollIntoView({ behavior: 'smooth', block: 'start' });
     updateManualMax();
     // shot-log を更新
     const log = document.getElementById('shot-log');
@@ -3850,12 +4247,400 @@ function confirmReviewedShots() {
         badge.textContent = `#${i+1} ${t.toFixed(2)}s` + (split ? ` (+${split})` : '');
         log.appendChild(badge);
     });
+
+    // 射撃記録を「採点待ち」として即保存し、採点は後でまとめて行えるようにする
+    const rec = savePendingFromCurrent();
+    updateSelfRefFromReview();
+    showRecordDone(rec);
 }
 
-// ── 自動検出結果のまま確定 ──
+// ── 判別状態のまま確定（レビュー画面の初期状態＝自動判定結果） ──
 function skipReviewAndConfirm() {
-    reviewShotTimes = [...shotTimes];
     confirmReviewedShots();
+}
+
+/* ═══════════════════════════════════════════
+   射撃記録と採点の分離
+   射撃終了→記録を「採点待ち」に保存→（後で）的をまとめて撮影→撮影順に自動割当→採点
+═══════════════════════════════════════════ */
+const PENDING_KEY = 'mali_pending_sessions';
+
+function pEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+function pTime(ts) {
+    const m = String(ts || '').match(/(\d{1,2}:\d{2}):\d{2}\s*$/);
+    return m ? m[1] : '';
+}
+function getPending() {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]') || []; } catch (e) { return []; }
+}
+function setPending(list) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); return true; }
+    catch (e) { alert('採点待ちの保存に失敗しました（端末の保存容量を確認してください）。'); return false; }
+}
+
+// 射撃設定のスナップショット（採点時に当時の目標値・射距離を復元するため）
+function captureCfgSnapshot() {
+    const v = id => document.getElementById(id)?.value;
+    return {
+        preset: currentPreset,
+        totalShots: v('cfg-total-shots'), targetHits: v('cfg-target-hits'), targetHeight: v('cfg-target-height'),
+        targetGrouping: v('cfg-target-grouping'), targetFirst: v('cfg-target-first'), targetSplit: v('cfg-target-split'),
+        targetReload: v('cfg-target-reload'), targetMalfunction: v('cfg-target-malfunction'), reloadAt: v('cfg-reload-at'),
+        useExposure: !!document.getElementById('chk-use-exposure')?.checked,
+        ranges: getRangeArray(),
+        targetNums: Array.from(document.querySelectorAll('#target-range-list .shot-target-select')).map(s => parseInt(s.value) || 1),
+    };
+}
+function applyCfgSnapshot(cs) {
+    if (!cs) return;
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+    set('cfg-total-shots', cs.totalShots); set('cfg-target-hits', cs.targetHits); set('cfg-target-height', cs.targetHeight);
+    set('cfg-target-grouping', cs.targetGrouping); set('cfg-target-first', cs.targetFirst); set('cfg-target-split', cs.targetSplit);
+    set('cfg-target-reload', cs.targetReload); set('cfg-target-malfunction', cs.targetMalfunction); set('cfg-reload-at', cs.reloadAt);
+    currentPreset = cs.preset || 'custom';
+    document.querySelectorAll('#scenario-preset-bar .preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('preset-btn-' + currentPreset)?.classList.add('active');
+    buildTargetRangeList(cs.ranges || null, cs.targetNums || null);
+    updateManualMax();
+    const expChk = document.getElementById('chk-use-exposure');
+    if (expChk) expChk.checked = !!cs.useExposure;
+}
+
+function savePendingFromCurrent() {
+    const preset = PRESETS[currentPreset] || null;
+    const incl = reviewDets.filter(isIncluded);
+    const rec = {
+        id: Date.now(),
+        shooter: document.getElementById('cfg-shooter')?.value || '',
+        unitId: trainingConfig.unitId || '',
+        eventName: trainingConfig.eventName || '',
+        eventDate: trainingConfig.eventDate || new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toLocaleString('ja-JP'),
+        preset: currentPreset,
+        scenarioType: preset ? preset.scenarioType : 'custom',
+        range: getRangeString(),
+        rangeArr: getRangeArray(),
+        cfgSnap: captureCfgSnapshot(),
+        shotTimes: [...shotTimes],
+        actionTimings: actionTimings.map(a => ({ ...a })),
+        shotPeaks: incl.map(d => ({ t: +d.t.toFixed(3), peak: +(d.peak || 0).toFixed(3) })),
+        startMode: document.getElementById('start-mode')?.value || 'instant',
+    };
+    const list = getPending();
+    list.push(rec);
+    setPending(list);
+    lastPendingId = rec.id;
+    return rec;
+}
+
+// 確定した射撃の音量を次回以降の自己基準にする（前回値と平均して急変を抑える）
+function updateSelfRefFromReview() {
+    if (!discrimEnabled()) return;
+    const inc = reviewDets.filter(d => isIncluded(d) && !d.manual && d.peak > 0);
+    if (inc.length < 2) return;
+    const peak = medianOf(inc.map(d => d.peak));
+    const sharp = medianOf(inc.map(d => d.sharp || 0));
+    const name = currentShooterName();
+    const prev = selfRefMap[name];
+    selfRefMap[name] = prev
+        ? { peak: (prev.peak + peak) / 2, sharp: ((prev.sharp || sharp) + sharp) / 2 }
+        : { peak, sharp };
+    persistSelfRef();
+    updateSelfRefLabel();
+}
+
+function showRecordDone(rec) {
+    const sum = document.getElementById('record-done-summary');
+    const ts = rec.shotTimes;
+    const total = ts[ts.length - 1] || 0;
+    const splits = [];
+    for (let i = 1; i < ts.length; i++) splits.push(ts[i] - ts[i - 1]);
+    const avg = splits.length ? splits.reduce((a, b) => a + b, 0) / splits.length : 0;
+    const label = (typeof SCENARIO_LABELS !== 'undefined' && SCENARIO_LABELS[rec.scenarioType]) || rec.scenarioType;
+    sum.innerHTML = `<div style="color:#ddd; font-weight:700;">${pEsc(rec.shooter)} — ${pEsc(label)}</div>`
+        + `<div>${ts.length}発 / 初弾 ${(ts[0] || 0).toFixed(2)}s / 合計 ${total.toFixed(2)}s / 平均間隔 ${avg.toFixed(2)}s`
+        + (rec.actionTimings.length ? ` / アクション計測 ${rec.actionTimings.length}回` : '') + `</div>`
+        + `<div style="color:#60a0ff;">採点待ち 計${getPending().length}件</div>`;
+    const area = document.getElementById('record-done-area');
+    area.style.display = 'block';
+    renderPendingPanel();
+    area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function nextEngagement() {
+    document.getElementById('record-done-area').style.display = 'none';
+    const btn = document.getElementById('startBtn');
+    btn.innerText = 'START';
+    btn.classList.remove('done');
+    btn.disabled = false;
+    const tv = document.getElementById('timer-val');
+    tv.innerText = '0.00';
+    tv.style.color = '';
+    document.getElementById('shot-log').innerHTML = '';
+    btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function scoreNow() {
+    if (lastPendingId == null) return;
+    startBatchScoring([lastPendingId]);
+}
+
+function renderPendingPanel() {
+    const card = document.getElementById('pending-card');
+    if (!card) return;
+    const list = getPending().sort((a, b) => a.id - b.id);
+    if (!list.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    document.getElementById('pending-count').textContent = list.length + '件';
+    const prev = {};
+    document.querySelectorAll('#pending-list input[type=checkbox]').forEach(cb => { prev[cb.id] = cb.checked; });
+    document.getElementById('pending-list').innerHTML = list.map((p, i) => {
+        const id = 'pchk-' + p.id;
+        const checked = (id in prev) ? prev[id] : true;
+        const total = (p.shotTimes[p.shotTimes.length - 1] || 0).toFixed(2);
+        const label = (typeof SCENARIO_LABELS !== 'undefined' && SCENARIO_LABELS[p.scenarioType]) || p.scenarioType;
+        return `<div class="history-card" style="padding:8px 10px; margin-bottom:6px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}
+                    style="width:16px; height:16px; accent-color:var(--primary); cursor:pointer;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:0.85rem; color:#ddd; font-weight:700;">${i + 1}. ${pEsc(p.shooter)}</div>
+                    <div style="font-size:0.62rem; color:#666; font-family:monospace;">${pEsc(label)} · ${p.shotTimes.length}発 · ${total}s · ${pTime(p.timestamp)} · 的${sortedTargetsOf(p).length}枚</div>
+                </div>
+                <button class="btn-secondary btn-danger" onclick="deletePending(${p.id})"
+                    style="font-size:0.7rem; padding:4px 8px;">削除</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function pendingSelectAll(on) {
+    document.querySelectorAll('#pending-list input[type=checkbox]').forEach(cb => { cb.checked = on; });
+}
+
+function deletePending(id) {
+    if (!confirm('この採点待ちの射撃記録を削除します。元に戻せません。')) return;
+    setPending(getPending().filter(p => p.id !== id));
+    renderPendingPanel();
+}
+
+function startBatchScoringFromChecked() {
+    const ids = Array.from(document.querySelectorAll('#pending-list input[type=checkbox]:checked'))
+        .map(cb => parseInt(cb.id.replace('pchk-', '')));
+    startBatchScoring(ids);
+}
+
+// セッションが使用するターゲット番号（昇順・重複なし）= 撮影すべき的の枚数
+function sortedTargetsOf(rec) {
+    const cs = rec.cfgSnap || {};
+    const n = parseInt(cs.totalShots) || (rec.shotTimes || []).length || 1;
+    const nums = (cs.targetNums || []).slice(0, n).filter(x => x > 0);
+    const uniq = [...new Set(nums)].sort((a, b) => a - b);
+    return uniq.length ? uniq : [1];
+}
+
+function rangeForTargetSnap(cs, tNum) {
+    const nums = (cs && cs.targetNums) || [], rs = (cs && cs.ranges) || [];
+    for (let i = 0; i < nums.length; i++) if (nums[i] === tNum) return rs[i] || 10;
+    return rs[0] || 10;
+}
+
+// 通算の画像番号 g（0始まり）を、撮影順に 採点対象セッション＋ターゲット番号 へ割り当てる
+function assignImageToQueue(g) {
+    let acc = 0;
+    for (let k = 0; k < scoringQueue.length; k++) {
+        const ts = sortedTargetsOf(scoringQueue[k].rec);
+        if (g < acc + ts.length) return { k, tNum: ts[g - acc] };
+        acc += ts.length;
+    }
+    const k = scoringQueue.length - 1;
+    const ts = sortedTargetsOf(scoringQueue[k].rec);
+    return { k, tNum: Math.min(5, (g - (acc - ts.length)) + 1) };
+}
+
+function onImgSessionChange(sel) {
+    const q = scoringQueue.find(x => x.id === parseInt(sel.value));
+    if (!q) return;
+    const idx = sel.dataset.imgIdx;
+    const tSel = document.querySelector(`.img-target-select[data-img-idx="${idx}"]`);
+    const lbl = sel.parentElement.querySelector('.img-range-label');
+    if (lbl && tSel) lbl.textContent = `画像 ${parseInt(idx) + 1}  /  ${rangeForTargetSnap(q.rec.cfgSnap, parseInt(tSel.value))}m`;
+}
+
+function renderScoringInfo() {
+    const el = document.getElementById('scoring-queue-info');
+    if (!el) return;
+    if (!scoringQueue.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const total = scoringQueue.reduce((s, q) => s + q.nTargets, 0);
+    el.style.display = 'block';
+    el.innerHTML = `<div style="font-size:0.72rem; color:#60a0ff; font-weight:700; margin-bottom:4px;">採点対象 ${scoringQueue.length}件 ／ 撮影枚数の目安 ${total}枚（この順に撮影）</div>`
+        + scoringQueue.map((q, k) => {
+            const label = (typeof SCENARIO_LABELS !== 'undefined' && SCENARIO_LABELS[q.rec.scenarioType]) || q.rec.scenarioType;
+            const ts = sortedTargetsOf(q.rec).map(n => 'T' + n).join(',');
+            return `<div style="font-family:monospace; font-size:0.68rem; color:#888; line-height:1.7;">${k + 1}. ${pEsc(q.rec.shooter)} — ${pEsc(label)} — ${pTime(q.rec.timestamp)} — ${q.nTargets}枚 (${ts})</div>`;
+        }).join('')
+        + `<button onclick="cancelScoring()" style="margin-top:8px; background:#1a0a0a; border:1px solid #441111; color:#ff6060; padding:5px 12px; border-radius:4px; font-size:0.7rem; cursor:pointer;">採点を中断</button>`;
+}
+
+function startBatchScoring(ids) {
+    if (isRunning) { alert('計測中です。終了してから採点してください。'); return; }
+    if (scoringQueue.length) {
+        if (!confirm('すでに採点作業中です。最初からやり直しますか？')) return;
+        cancelScoring(true);
+    }
+    const list = getPending().filter(p => ids.includes(p.id)).sort((a, b) => a.id - b.id);
+    if (!list.length) { alert('採点するセッションを選択してください。'); return; }
+
+    liveCfgBackup = captureCfgSnapshot();
+    scoringQueue = list.map(p => ({ id: p.id, rec: p, nTargets: sortedTargetsOf(p).length, result: null, saved: false }));
+    scoringIdx = -1; scoringTarget = null;
+
+    setAnalysisMode('manual');                       // 一括採点は手動マーク方式に固定
+    document.getElementById('analysis-mode-bar').style.display = 'none';
+    document.getElementById('canvas-list').innerHTML = '';
+    manualSessions = []; cumulativeHits = 0; individualGroupings = [];
+    const aa = document.getElementById('assessment-area');
+    aa.style.display = 'none'; aa.innerHTML = '';
+    document.getElementById('record-done-area').style.display = 'none';
+    document.getElementById('upload-btn').textContent = '写真をアップロード（撮影順に自動割当）';
+    const mm = document.getElementById('manual-max');
+    if (mm) mm.textContent = list.reduce((s, p) => s + (parseInt(p.cfgSnap?.totalShots) || p.shotTimes.length), 0);
+    const acq = document.getElementById('acquisition-area');
+    acq.style.display = 'block';
+    renderScoringInfo();
+    acq.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cancelScoring(silent) {
+    if (!silent && scoringQueue.length &&
+        !confirm('採点作業を中断します。未保存のマークは破棄されます（射撃記録は採点待ちに残ります）。')) return;
+    if (liveCfgBackup) applyCfgSnapshot(liveCfgBackup);
+    liveCfgBackup = null;
+    scoringQueue = []; scoringTarget = null; scoringIdx = -1;
+    document.getElementById('acquisition-area').style.display = 'none';
+    const aa = document.getElementById('assessment-area');
+    aa.style.display = 'none'; aa.innerHTML = '';
+    document.getElementById('canvas-list').innerHTML = '';
+    const bar = document.getElementById('analysis-mode-bar');
+    if (bar) bar.style.display = '';
+    manualSessions = []; uploadedImageCount = 0; cumulativeHits = 0; individualGroupings = [];
+    renderScoringInfo();
+    renderPendingPanel();
+}
+
+function finishScoring() {
+    const n = scoringQueue.filter(q => q.saved).length;
+    cancelScoring(true);
+    alert(`採点完了：${n}件を保存しました。HISTORYタブで確認できます。`);
+}
+
+// 一括採点: 画像ごとのマークをセッション別に集計し、1件ずつ確認・保存する
+function confirmBatchMarks() {
+    if (!manualSessions.length) { alert('先に写真をアップロードしてください。'); return; }
+    scoringQueue.forEach(q => { q.result = { hits: 0, groupings: [], photos: 0 }; q.saved = false; });
+
+    manualSessions.forEach(ms => {
+        const sessSel = document.querySelector(`.img-session-select[data-img-idx="${ms.targetIdx}"]`);
+        const sid = sessSel ? parseInt(sessSel.value) : scoringQueue[0].id;
+        const q = scoringQueue.find(x => x.id === sid) || scoringQueue[0];
+        const tSel = document.querySelector(`.img-target-select[data-img-idx="${ms.targetIdx}"]`);
+        const tNum = tSel ? (parseInt(tSel.value) || 1) : 1;
+        const targetH = parseFloat(q.rec.cfgSnap?.targetHeight) || 100;
+        const cmPerPx = targetH / ms.drawH;
+        const marks = ms.marks;
+        let maxD = 0;
+        for (let i = 0; i < marks.length; i++)
+            for (let j = i + 1; j < marks.length; j++)
+                maxD = Math.max(maxD, Math.hypot(marks[i].x - marks[j].x, marks[i].y - marks[j].y));
+        const groupCm = maxD * cmPerPx;
+        q.result.hits += marks.length;
+        q.result.groupings.push(groupCm);
+        q.result.photos++;
+
+        const cvs = ms.wrapper.querySelector('canvas');
+        if (cvs) {
+            const ctx = cvs.getContext('2d');
+            ctx.clearRect(0, 0, ms.drawW, ms.drawH);
+            ctx.drawImage(ms.img, 0, 0, ms.drawW, ms.drawH);
+            marks.forEach((m, idx) => {
+                ctx.beginPath(); ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 3;
+                ctx.arc(m.x, m.y, 18, 0, Math.PI * 2); ctx.stroke();
+                ctx.beginPath(); ctx.fillStyle = '#ff3333';
+                ctx.arc(m.x, m.y, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 13px monospace';
+                ctx.fillText('' + (idx + 1), m.x + 22, m.y + 5);
+            });
+            ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, 0, ms.drawW, 32);
+            ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 14px monospace';
+            ctx.fillText(q.rec.shooter + ' T' + tNum + '  ' + marks.length + '発  散布' + groupCm.toFixed(1) + 'cm', 8, 22);
+        }
+    });
+
+    // 写真が1枚も割り当たっていないセッションは採点待ちに残す
+    const missing = scoringQueue.filter(q => q.result.photos === 0);
+    if (missing.length) {
+        if (missing.length === scoringQueue.length) { alert('写真が割り当てられたセッションがありません。'); return; }
+        if (!confirm(`写真が割り当てられていないセッションが${missing.length}件あります。\nそれらは採点待ちのまま残し、他を採点しますか？`)) return;
+        scoringQueue = scoringQueue.filter(q => q.result.photos > 0);
+    }
+
+    const container = document.getElementById('canvas-list');
+    const old = container.querySelector('.target-summary');
+    if (old) old.remove();
+    const summary = document.createElement('div');
+    summary.className = 'target-summary';
+    summary.style.cssText = 'background:#050505; border:1px solid #222; border-radius:4px; padding:10px 12px; margin-top:8px; font-family:monospace; font-size:0.72rem; line-height:2;';
+    summary.innerHTML = '<span style="color:#555; font-size:0.65rem; letter-spacing:1px;">SCORING SUMMARY</span><br>'
+        + scoringQueue.map((q, k) => {
+            const g = q.result.groupings;
+            const avg = g.length ? (g.reduce((a, b) => a + b, 0) / g.length).toFixed(1) : '--';
+            return `<span style="color:#ffcc00;">${k + 1}. ${pEsc(q.rec.shooter)}</span>  命中: <strong style="color:#eee;">${q.result.hits}発</strong>  平均散布: <strong style="color:#eee;">${avg}cm</strong> （写真${q.result.photos}枚）<br>`;
+        }).join('');
+    container.appendChild(summary);
+
+    scoringIdx = 0;
+    showWizardStep();
+}
+
+// 採点ウィザード: 対象セッションの設定・タイムを復元して成績画面を表示
+function showWizardStep() {
+    const q = scoringQueue[scoringIdx];
+    if (!q) { finishScoring(); return; }
+    scoringTarget = q.id;
+    applyCfgSnapshot(q.rec.cfgSnap);
+    shotTimes = [...q.rec.shotTimes];
+    actionTimings = (q.rec.actionTimings || []).map(a => ({ ...a }));
+    cumulativeHits = q.result.hits;
+    individualGroupings = [...q.result.groupings];
+    generateAssessment();
+
+    const card = document.querySelector('#assessment-area .card');
+    if (card) {
+        const label = (typeof SCENARIO_LABELS !== 'undefined' && SCENARIO_LABELS[q.rec.scenarioType]) || q.rec.scenarioType;
+        const info = document.createElement('div');
+        info.style.cssText = 'background:#0a0a14; border:1px solid #1a1a3a; border-radius:4px; padding:8px 10px; margin-bottom:10px; font-family:monospace; font-size:0.72rem; color:#60a0ff;';
+        info.innerHTML = `採点 ${scoringIdx + 1}/${scoringQueue.length} — <strong>${pEsc(q.rec.shooter)}</strong> / ${pEsc(label)} / ${pEsc(q.rec.timestamp)}`;
+        const h2 = card.querySelector('h2');
+        if (h2) h2.insertAdjacentElement('afterend', info); else card.insertBefore(info, card.firstChild);
+    }
+    const saveBtn = document.querySelector('#assessment-area button[onclick="saveSession()"]');
+    if (saveBtn) saveBtn.textContent = (scoringIdx < scoringQueue.length - 1) ? '保存して次へ' : '保存して完了';
+    document.getElementById('assessment-area').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 未入力のチェック項目（頭部命中・暴露）があれば項目名を返す
+function checklistMissing() {
+    const st = finalStats && finalStats.scenarioType;
+    if (st === 'suppress_day' || st === 'suppress_night') {
+        return finalStats.control && finalStats.control.headshot ? '' : '5発目頭部命中';
+    }
+    if (st === 'posture') {
+        const cl = finalStats.exposure && finalStats.exposure.checklist;
+        return (!cl || cl.some(v => v === null)) ? '暴露チェック' : '';
+    }
+    return '';
 }
 
 // ── History チェックボックス操作 ──
@@ -4011,7 +4796,7 @@ function exportSelectedJSON() {
     if (!sessions.length) return;
 
     const payload = {
-        appVersion: 'MaLI ver64',
+        appVersion: 'MaLI ver65',
         exportedAt: new Date().toISOString(),
         deviceInfo: navigator.userAgent,
         trainingConfig: { ...trainingConfig },
@@ -4465,6 +5250,20 @@ function exportFullCSV() {
 
 document.getElementById('startBtn').onclick = async () => {
     const btn = document.getElementById('startBtn');
+
+    // 計測中の再押下: 誤タップで記録が消えないよう確認してからやり直し
+    if (isRunning) {
+        if (!confirm('計測中です。この計測を破棄して最初からやり直しますか？')) return;
+        isRunning = false;
+        if (waveSampleInterval) { clearInterval(waveSampleInterval); waveSampleInterval = null; }
+        showActionTimingBar(false); atReset();
+    }
+    // 採点作業中: 中断して新しい射撃へ（射撃記録は採点待ちに残る）
+    if (scoringQueue.length) {
+        if (!confirm('採点作業中です。中断して新しい射撃を開始しますか？\n（未保存のマークは破棄／射撃記録は採点待ちに残ります）')) return;
+        cancelScoring(true);
+    }
+
     btn.disabled = true;
     try {
         await initAudio();
@@ -4473,16 +5272,27 @@ document.getElementById('startBtn').onclick = async () => {
         btn.disabled = false; return;
     }
     shotTimes = []; lastShotTime = -999; waveBuffer = []; reviewShotTimes = [];
+    detReset();
     document.getElementById('shot-log').innerHTML = '';
     document.getElementById('timer-val').innerText = "STANDBY";
     document.getElementById('timer-val').style.color = '#ffcc00';
     document.getElementById('waveform-review-area').style.display = 'none';
+    document.getElementById('record-done-area').style.display = 'none';
     document.getElementById('acquisition-area').style.display = 'none';
-    btn.innerText = "STANDBY...";
     btn.classList.remove('done');
 
+    const mode = document.getElementById('start-mode')?.value || 'instant';
+    if (mode === 'instant') { beginEngagement(false); return; }   // 押下の瞬間に計測開始
+
+    btn.innerText = "STANDBY...";
     const delay = 2000 + Math.random() * 2000;
-    setTimeout(() => {
+    setTimeout(() => beginEngagement(true), delay);
+};
+
+// 計測開始（withBeep=true: スタートビープを鳴らす従来方式）
+function beginEngagement(withBeep) {
+    const btn = document.getElementById('startBtn');
+    if (withBeep) {
         // スタートビープ: iOSは音量1.5倍
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         const osc = audioCtx.createOscillator();
@@ -4491,28 +5301,42 @@ document.getElementById('startBtn').onclick = async () => {
         osc.frequency.value = 880;
         gain.gain.value = isIOS ? 0.45 : 0.30;  // iOS: 0.3×1.5=0.45
         osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+    }
 
-        startTime = performance.now(); isRunning = true;
-        document.getElementById('timer-val').innerText = "0.00";
-        document.getElementById('timer-val').style.color = '#32d74b';
-        btn.innerText = "RECORDING";
-        btn.disabled = false;
-        document.getElementById('finishBtn').style.display = 'block';
-        atReset(); showActionTimingBar(true);
+    startTime = performance.now(); isRunning = true;
+    document.getElementById('timer-val').innerText = "0.00";
+    document.getElementById('timer-val').style.color = '#32d74b';
+    btn.innerText = "RECORDING";
+    btn.disabled = false;
+    document.getElementById('finishBtn').style.display = 'block';
+    atReset(); showActionTimingBar(true);
 
-        // 波形バッファへの蓄積開始
-        waveSampleInterval = setInterval(() => {
-            if (!isRunning || !analyser) return;
-            analyser.getByteTimeDomainData(dataArray);
-            const t = (performance.now() - startTime) / 1000;
-            waveBuffer.push({ t, rms: getRMSEnergy() });
-        }, 1000 / WAVE_SPS);
-    }, delay);
-};
+    // 波形バッファへの蓄積開始
+    waveSampleInterval = setInterval(() => {
+        if (!isRunning || !analyser) return;
+        analyser.getByteTimeDomainData(dataArray);
+        const t = (performance.now() - startTime) / 1000;
+        waveBuffer.push({ t, rms: getRMSEnergy() });
+    }, 1000 / WAVE_SPS);
+}
 
 // ─── 初期化 ───
 applyPreset('posture');
 refreshCustomScenarioSelect();
+loadSelfRef();
+(function initV65() {
+    try {
+        const sm = localStorage.getItem('mali_start_mode');
+        if (sm) document.getElementById('start-mode').value = sm;
+        const rt = localStorage.getItem('mali_other_ratio');
+        if (rt) {
+            ['other-ratio', 'other-ratio-review'].forEach(id => { const el = document.getElementById(id); if (el) el.value = rt; });
+            ['other-ratio-val', 'other-ratio-val-review'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = rt; });
+        }
+    } catch (e) {}
+    updateSelfRefLabel();
+    renderPendingPanel();
+})();
 
 </script>
 <!-- ===== ACTION TIMING BAR (Fixed bottom during engagement) ===== -->
