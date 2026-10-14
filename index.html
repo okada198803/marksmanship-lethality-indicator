@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>射撃術技量評価ツール MaLI ver65 - Marksmanship Lethality Indicator</title>
+    <title>射撃術技量評価ツール MaLI ver66 - Marksmanship Lethality Indicator</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;700;900&display=swap');
 
@@ -279,7 +279,7 @@
 <body>
 
 <header class="app-header">
-    <h1 class="app-title-main">MaLI ver65</h1>
+    <h1 class="app-title-main">MaLI ver66</h1>
     <div class="app-subtitle">射撃術技量評価ツール — Marksmanship Lethality Indicator</div>
 </header>
 
@@ -520,14 +520,22 @@
     <div style="position:relative; background:#050505; border-radius:4px; overflow-x:scroll; overflow-y:hidden; margin-bottom:10px;" id="wave-scroll-wrap">
         <canvas id="waveReviewCanvas" style="display:block; height:120px;"></canvas>
     </div>
-    <div style="font-size:0.62rem; color:#444; margin-bottom:10px; font-family:monospace;">
-        タップ: 発射マーク追加 　マーク上タップ: 採用／除外の切替 　横スクロール: 波形移動
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="font-size:0.7rem; color:#888;">ズーム</span>
+        <button onclick="waveZoom(-1)" class="btn-secondary" style="width:44px; padding:6px 0; font-size:1rem;">−</button>
+        <span id="wave-zoom-label" style="font-size:0.75rem; color:#aaa; font-family:monospace; min-width:30px; text-align:center;">×1</span>
+        <button onclick="waveZoom(1)" class="btn-secondary" style="width:44px; padding:6px 0; font-size:1rem;">＋</button>
+    </div>
+    <div style="font-size:0.62rem; color:#444; margin-bottom:10px; font-family:monospace; line-height:1.6;">
+        空白タップ: 発射マーク追加 　マーク上タップ: 採用／除外の切替 　近接マークはズームで分離 　横スクロール: 波形移動
     </div>
 
     <!-- 現在のショットタイムリスト -->
     <div style="margin-bottom:12px;">
-        <div style="font-size:0.7rem; color:#888; margin-bottom:6px;">発射タイム一覧（タップで削除）</div>
+        <div style="font-size:0.7rem; color:#888; margin-bottom:6px;">発射タイム一覧（チップ: 採用／除外の切替 ・ ×: 完全削除）</div>
+        <div id="review-shot-count" style="font-size:0.68rem; color:#ffcc00; margin-bottom:6px; font-family:monospace;"></div>
         <div id="review-shot-list" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+        <button onclick="deleteExcludedDets()" class="btn-secondary" style="margin-top:8px; font-size:0.7rem; padding:6px 10px;">除外（グレー）をすべて削除</button>
     </div>
 
     <!-- 確定ボタン -->
@@ -3955,9 +3963,25 @@ function initCompareTab() {
    波形レビュー & 手動ショット補正
 ═══════════════════════════════════════════ */
 
-const WAVE_PX_PER_SEC = 120;   // 表示解像度: 1秒=120px
+let WAVE_PX_PER_SEC = 120;   // 表示解像度: 1秒=120px（ズームで変更）
+const WAVE_ZOOMS = [60, 120, 240, 480, 960];
+function waveZoom(dir) {
+    const wrap = document.getElementById('wave-scroll-wrap');
+    let i = WAVE_ZOOMS.indexOf(WAVE_PX_PER_SEC); if (i < 0) i = 1;
+    const ni = Math.max(0, Math.min(WAVE_ZOOMS.length - 1, i + dir));
+    if (ni === i) return;
+    // 表示中央の時刻を保ってズーム
+    const centerT = wrap ? (wrap.scrollLeft + wrap.clientWidth / 2) / WAVE_PX_PER_SEC : 0;
+    WAVE_PX_PER_SEC = WAVE_ZOOMS[ni];
+    drawWaveReviewCanvas();
+    if (wrap) wrap.scrollLeft = Math.max(0, centerT * WAVE_PX_PER_SEC - wrap.clientWidth / 2);
+    const lb = document.getElementById('wave-zoom-label');
+    if (lb) lb.textContent = '×' + (WAVE_PX_PER_SEC / 120).toFixed(WAVE_PX_PER_SEC < 120 ? 1 : 0);
+}
 
 function openWaveformReview() {
+    WAVE_PX_PER_SEC = 120;
+    const zl = document.getElementById('wave-zoom-label'); if (zl) zl.textContent = '×1';
     const area = document.getElementById('waveform-review-area');
     area.style.display = 'block';
     area.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -4029,7 +4053,11 @@ function reviewVisible() {
 
 // 波形タップ: 既存マーク上なら採用/除外を切替、なければ手動で追加
 function reviewTapAt(t, radiusPx) {
-    const hit = reviewDets.find(d => Math.abs(d.t - t) * WAVE_PX_PER_SEC < radiusPx);
+    let hit = null, best = Infinity;
+    reviewDets.forEach(d => {
+        const dist = Math.abs(d.t - t) * WAVE_PX_PER_SEC;
+        if (dist < radiusPx && dist < best) { best = dist; hit = d; }
+    });
     if (hit) {
         if (isIncluded(hit)) {
             if (hit.manual) reviewDets.splice(reviewDets.indexOf(hit), 1);
@@ -4047,49 +4075,51 @@ function reviewTapAt(t, radiusPx) {
 }
 
 // ── ショットタイムリスト表示 ──
+// 採用チップ: タップで除外 / ×で完全削除。除外チップ: タップで採用に戻す / ×で完全削除
 function renderReviewShotList() {
     const el = document.getElementById('review-shot-list');
-    const inc = reviewDets.filter(isIncluded);
-    const exc = reviewDets.filter(d => !isIncluded(d));
-    if (!inc.length && !exc.length) {
+    const cnt = document.getElementById('review-shot-count');
+    const nInc = reviewDets.filter(isIncluded).length;
+    const nExc = reviewDets.length - nInc;
+    if (cnt) cnt.textContent = `採用 ${nInc} 件` + (nExc ? ` ／ 除外 ${nExc} 件（グレー）` : '');
+    if (!reviewDets.length) {
         el.innerHTML = '<span style="color:#333; font-size:0.72rem;">発射タイムなし</span>';
         return;
     }
-    const incHtml = inc.map((d, i) => {
-        const warn = d.cls === 'uncertain' && d.force !== 'included';
-        return `<span onclick="removeReviewShot(${i})"
-            style="background:#1a1a1a; border:1px solid ${warn ? '#ff9500' : '#333'}; color:${warn ? '#ff9500' : '#ffcc00'};
-                   padding:4px 8px; border-radius:4px; font-family:monospace;
-                   font-size:0.72rem; cursor:pointer; user-select:none;"
-            title="タップで除外">
-            #${i+1} ${d.t.toFixed(2)}s${warn ? ' ?' : ''}
+    let no = 0;
+    const showRatio = reviewRef && discrimEnabled();
+    el.innerHTML = reviewDets.map((d, k) => {
+        const inc = isIncluded(d);
+        const warn = inc && d.cls === 'uncertain' && d.force !== 'included';
+        const pct = showRatio && !d.manual && d.ratio != null ? ` <span style="opacity:.6">${Math.round(d.ratio * 100)}%</span>` : '';
+        const label = inc ? `#${++no} ${d.t.toFixed(2)}s${warn ? ' ?' : ''}` : `他 ${d.t.toFixed(2)}s`;
+        const st = inc
+            ? `background:#1a1a1a; border:1px solid ${warn ? '#ff9500' : '#333'}; color:${warn ? '#ff9500' : '#ffcc00'};`
+            : 'background:#0d0d0d; border:1px dashed #444; color:#777;';
+        return `<span style="display:inline-flex; align-items:stretch; ${st} border-radius:4px; font-family:monospace; font-size:0.74rem; user-select:none;">
+            <span onclick="toggleReviewDet(${k})" style="padding:8px 8px; cursor:pointer;" title="${inc ? 'タップで除外' : 'タップで採用に戻す'}">${label}${pct}</span>
+            <span onclick="deleteReviewDet(${k})" style="padding:8px 10px; cursor:pointer; border-left:1px solid #2a2a2a; color:#c66;" title="完全に削除">×</span>
         </span>`;
     }).join('');
-    const excHtml = exc.map((d, i) =>
-        `<span onclick="restoreReviewShot(${i})"
-            style="background:#0d0d0d; border:1px dashed #444; color:#666;
-                   padding:4px 8px; border-radius:4px; font-family:monospace;
-                   font-size:0.72rem; cursor:pointer; user-select:none;"
-            title="タップで採用に戻す">
-            他 ${d.t.toFixed(2)}s
-        </span>`
-    ).join('');
-    el.innerHTML = incHtml + excHtml;
 }
 
-function removeReviewShot(idx) {
-    const d = reviewDets.filter(isIncluded)[idx];
+function toggleReviewDet(k) {
+    const d = reviewDets[k];
     if (!d) return;
-    if (d.manual) reviewDets.splice(reviewDets.indexOf(d), 1);
-    else d.force = 'excluded';
+    if (isIncluded(d)) d.force = 'excluded'; else d.force = 'included';
     syncReviewShotTimes();
     renderWaveReview();
 }
 
-function restoreReviewShot(idx) {
-    const d = reviewDets.filter(x => !isIncluded(x))[idx];
-    if (!d) return;
-    d.force = 'included';
+function deleteReviewDet(k) {
+    if (!reviewDets[k]) return;
+    reviewDets.splice(k, 1);
+    syncReviewShotTimes();
+    renderWaveReview();
+}
+
+function deleteExcludedDets() {
+    reviewDets = reviewDets.filter(isIncluded);
     syncReviewShotTimes();
     renderWaveReview();
 }
@@ -4151,7 +4181,7 @@ function drawWaveReviewCanvas() {
 
     // 発射マーカー（採用=黄 / 要確認=橙 / 除外=灰）
     let shotNo = 0;
-    reviewDets.forEach(d => {
+    reviewDets.forEach((d, mi) => {
         const x = d.t * WAVE_PX_PER_SEC;
         const inc = isIncluded(d);
         const warn = inc && d.cls === 'uncertain' && d.force !== 'included';
@@ -4161,13 +4191,13 @@ function drawWaveReviewCanvas() {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = color; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(inc ? '#' + (++shotNo) + (warn ? '?' : '') : '他', x, H - 4);
+        ctx.fillText(inc ? '#' + (++shotNo) + (warn ? '?' : '') : '他', x, H - 4 - (mi % 2) * 12);
     });
 
     // タッチ/クリックイベント（一度だけ登録）
     if (!cvs._waveListenerAttached) {
         cvs._waveListenerAttached = true;
-        const hitRadius = 8;
+        const hitRadius = 10;
 
         const getTimeFromEvent = (e) => {
             const rect = cvs.getBoundingClientRect();
@@ -4221,7 +4251,7 @@ function drawWaveReviewCanvas() {
             const t     = xPx / WAVE_PX_PER_SEC;
             if (t < 0 || t > curMaxT()) return;
 
-            reviewTapAt(t, hitRadius * 2);
+            reviewTapAt(t, hitRadius * 1.4);
         }, { passive: false });
     }
 }
@@ -4796,7 +4826,7 @@ function exportSelectedJSON() {
     if (!sessions.length) return;
 
     const payload = {
-        appVersion: 'MaLI ver65',
+        appVersion: 'MaLI ver66',
         exportedAt: new Date().toISOString(),
         deviceInfo: navigator.userAgent,
         trainingConfig: { ...trainingConfig },
